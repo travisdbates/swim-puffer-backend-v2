@@ -1,0 +1,9 @@
+type Sessions {
+  _id: ID
+  sessionNumber: Int
+  cost: Int
+  startDate: String
+  endDate: String
+  startTime: String
+  endTime: String
+}
