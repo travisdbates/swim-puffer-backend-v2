@@ -38,6 +38,10 @@ const db = monk(url);
 let port = process.env.PORT || 4000;
 let host = process.env.HOST || 'localhost:';
 
+app.get('/helloworld', (req, res, next) => {
+  res.status(200).send('Hello world!');
+});
+
 db.then(() => {
   winston.log('info', 'Connected to mongo server');
   app.listen({ port }, () => console.log(`🚀 Server ready at ${host}${port}`));
