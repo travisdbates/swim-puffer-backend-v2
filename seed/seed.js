@@ -8,8 +8,10 @@ const {
 const config = require('../config');
 // Connection URL
 const url = config.mongo_uri;
-
-const db = monk(url);
+console.log(url);
+const db = monk(
+  'mongodb://heroku_bspfq7g5:f6fd65qbl4n2ta485da82f9s6l@ds261302.mlab.com:61302/heroku_bspfq7g5'
+);
 
 db.then(() => {
   console.log('Beginning seed');

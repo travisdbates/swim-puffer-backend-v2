@@ -35,11 +35,12 @@ app.use(bodyParser.json());
 const url = config.mongo_uri;
 const db = monk(url);
 
+let port = process.env.PORT || 4000;
+let host = process.env.HOST || 'localhost:';
+
 db.then(() => {
   winston.log('info', 'Connected to mongo server');
-  app.listen({ port: 4000 }, () =>
-    console.log(`🚀 Server ready at http://localhost:4000${server.graphqlPath}`)
-  );
+  app.listen({ port }, () => console.log(`🚀 Server ready at ${host}${port}`));
 });
 
 // const session = require('express-session');
