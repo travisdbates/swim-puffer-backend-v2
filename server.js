@@ -36,7 +36,6 @@ const url = config.mongo_uri;
 const db = monk(url);
 
 let port = process.env.PORT || 4000;
-let host = process.env.HOST || 'localhost:';
 
 app.get('/helloworld', (req, res, next) => {
   res.status(200).send('Hello world!');
@@ -44,7 +43,9 @@ app.get('/helloworld', (req, res, next) => {
 
 db.then(() => {
   winston.log('info', 'Connected to mongo server');
-  app.listen({ port }, () => console.log(`🚀 Server ready at ${host}${port}`));
+  app.listen({ port }, () => winston.info(`🚀 Server ready at ${port}`));
+}).catch(err => {
+  winston.error(err);
 });
 
 // const session = require('express-session');
