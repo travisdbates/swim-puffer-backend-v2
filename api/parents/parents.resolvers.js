@@ -1,8 +1,18 @@
-const { parent } = require('./parents.services');
+const {
+  getParent,
+  getParentStudents,
+  parentUpdate,
+  studentSignUp
+} = require('./parents.services');
 
 const resolvers = {
   Query: {
-    parent
+    getParent,
+    getParentStudents
+  },
+  Mutation: {
+    parentUpdate,
+    studentSignUp
   }
 };
 

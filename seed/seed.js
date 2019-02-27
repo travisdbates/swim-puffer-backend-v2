@@ -9,13 +9,15 @@ const config = require('../config');
 // Connection URL
 const url = config.mongo_uri;
 console.log(url);
-const db = monk(
-  'mongodb://heroku_bspfq7g5:f6fd65qbl4n2ta485da82f9s6l@ds261302.mlab.com:61302/heroku_bspfq7g5'
-);
+const db = monk(url);
+// const db = monk(
+//   'mongodb://heroku_bspfq7g5:f6fd65qbl4n2ta485da82f9s6l@ds261302.mlab.com:61302/heroku_bspfq7g5'
+// );
 
 db.then(() => {
   console.log('Beginning seed');
 });
+
 cleanDB = () => {
   const sessions = db.get('sessions');
   sessions.drop();
@@ -29,7 +31,8 @@ cleanDB = () => {
 
 createCollections = async () => {
   const sessions = await db.get('sessions');
-  sessionsImport.map(async session => {
+  sessionsImport.map(async (session, index) => {
+    console.log('Session ', index + 1);
     await sessions.insert(session);
   });
   const timeSlots = await db.get('timeSlots');

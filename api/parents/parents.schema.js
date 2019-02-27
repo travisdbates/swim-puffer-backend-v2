@@ -9,8 +9,37 @@ const typeDefs = gql`
     phone: String
   }
 
+  type Children {
+    firstName: String
+    sessionPreference: String
+    timePreference: String
+    sessionAssigned: String
+    timeAssigned: String
+  }
+
+  type Message {
+    status: String!
+    message: String!
+  }
+
   type Query {
-    parent(email: String): Parent!
+    getParent(email: String!): Parent
+    getParentStudents(email: String!): [Children]
+  }
+  type Mutation {
+    parentUpdate(
+      email: String!
+      firstName: String
+      lastName: String
+      phone: String
+    ): Parent!
+    studentSignUp(
+      email: String!
+      firstName: String!
+      sessionPreference: [Boolean]!
+      timePreference: [Int]!
+      notes: [String]
+    ): Message!
   }
 `;
 

@@ -24,7 +24,12 @@ const app = express();
 //   }
 // };
 
-server = new ApolloServer({ typeDefs, resolvers, introspection: true });
+server = new ApolloServer({
+  typeDefs,
+  resolvers,
+  introspection: true,
+  playground: true
+});
 server.applyMiddleware({ app });
 
 app.use(cors());

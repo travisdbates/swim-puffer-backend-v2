@@ -16,7 +16,7 @@ module.exports = {
       },
       startTime: '9:00AM',
       endTime: '5:30PM',
-      timePreferences: ['9AM - 11:30AM', '11:30 - 2:30PM', '2:30PM - 5:30PM']
+      active: true
     },
     {
       sessionNumber: 2,
@@ -34,7 +34,79 @@ module.exports = {
       },
       startTime: '9:00AM',
       endTime: '5:30PM',
-      timePreferences: ['9AM - 11:30AM', '11:30 - 2:30PM', '2:30PM - 5:30PM']
+      active: true
+    },
+    {
+      sessionNumber: 3,
+      cost: 85,
+      startDate: new Date('4/1/19'),
+      endDate: new Date('4/30/19'),
+      daysTaught: {
+        m: false,
+        t: true,
+        w: false,
+        th: true,
+        f: false,
+        sa: false,
+        s: false
+      },
+      startTime: '9:00AM',
+      endTime: '5:30PM',
+      active: true
+    },
+    {
+      sessionNumber: 4,
+      cost: 85,
+      startDate: new Date('4/1/19'),
+      endDate: new Date('4/30/19'),
+      daysTaught: {
+        m: false,
+        t: true,
+        w: false,
+        th: true,
+        f: false,
+        sa: false,
+        s: false
+      },
+      startTime: '9:00AM',
+      endTime: '5:30PM',
+      active: true
+    },
+    {
+      sessionNumber: 5,
+      cost: 85,
+      startDate: new Date('4/1/19'),
+      endDate: new Date('4/30/19'),
+      daysTaught: {
+        m: false,
+        t: true,
+        w: false,
+        th: true,
+        f: false,
+        sa: false,
+        s: false
+      },
+      startTime: '9:00AM',
+      endTime: '5:30PM',
+      active: true
+    },
+    {
+      sessionNumber: 6,
+      cost: 85,
+      startDate: new Date('4/1/19'),
+      endDate: new Date('4/30/19'),
+      daysTaught: {
+        m: false,
+        t: true,
+        w: false,
+        th: true,
+        f: false,
+        sa: false,
+        s: false
+      },
+      startTime: '9:00AM',
+      endTime: '5:30PM',
+      active: true
     }
   ],
   sessionTimes: {
@@ -466,21 +538,21 @@ module.exports = {
       firstName: 'Frank',
       lastName: 'Child',
       fullName: 'Frank Child',
-      requestedSession: 1,
-      requestedTime: '9AM - 10:30AM',
-      assignedSession: null,
-      assignedTime: null,
-      parent: 'bobfitz@parent.com'
+      sessionPreference: 1,
+      timePreference: '9AM - 10:30AM',
+      sessionAssigned: null,
+      timeAssigned: null,
+      email: 'bobfitz@parent.com'
     },
     {
       firstName: 'Timmy',
       lastName: 'Tooth',
       fullName: 'Timmy Tooth',
-      requestedSession: 1,
-      requestedTime: '10:30AM - 2:30PM',
-      assignedSession: null,
-      assignedTime: null,
-      parent: 'testparent@parent.com'
+      sessionPreference: 1,
+      timePreference: '10:30AM - 2:30PM',
+      sessionAssigned: null,
+      timeAssigned: null,
+      email: 'testparent@parent.com'
     }
   ]
 };
