@@ -6,9 +6,11 @@ const cors = require('cors');
 const monk = require('monk');
 const express = require('express');
 const { winston } = require('./utils');
-const { typeDefs } = require('./api/parents/parents.schema');
+const { typeDefs } = require('./api/schemas');
 const { resolvers } = require('./api/parents/parents.resolvers');
 const config = require('./config');
+const getUser = require('./utils/getUser');
+const jwt = require('jsonwebtoken');
 const app = express();
 
 // const typeDefs = gql`
@@ -28,7 +30,20 @@ server = new ApolloServer({
   typeDefs,
   resolvers,
   introspection: true,
-  playground: true
+  playground: true,
+  context: async ({ req }) => {
+    try {
+      let { email } = jwt.decode(req.headers.id);
+      return {
+        headers: {
+          ...req.headers,
+          email
+        }
+      };
+    } catch (err) {
+      winston.error(err);
+    }
+  }
 });
 server.applyMiddleware({ app });
 

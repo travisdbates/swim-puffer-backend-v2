@@ -3,6 +3,7 @@ const config = require('../../config');
 // const knex = require('knex');
 // const db = knex(config.db);
 const { knex } = require('../../utils/db');
+const util = require('util');
 const { winston } = require('../../utils');
 
 const getParent = async (_, { email }, ctx) => {
@@ -26,52 +27,30 @@ const getParentStudents = async (_, { email }, ctx) => {
 };
 
 const parentUpdate = async (_, args, ctx) => {
+  const { email, firstName, lastName, phone } = args;
   try {
-    let parent = await db.collection('parents').findOne({ email: args.email });
-    return await db.collection('parents').findOneAndUpdate(
-      {
-        email: args.email
-      },
-      {
-        ...parent,
-        ...args
-      }
+    const insert = knex('parents')
+      .insert({ email, firstName, lastName, phone })
+      .toString();
+    const update = knex('parents')
+      .update({ email, firstName, lastName, phone })
+      .whereRaw(`parents.email = '${email}'`)
+      .returning('*');
+    const query = util.format(
+      '%s ON CONFLICT (email) DO UPDATE SET %s',
+      insert.toString(),
+      update.toString().replace(/^update\s.*\sset\s/i, '')
     );
+    let parent = await knex.raw(query);
+    winston.info(parent.rows[0]);
+    return parent.rows[0];
   } catch (err) {
     winston.error(err);
-  }
-};
-
-const studentSignUp = async (_, args, ctx) => {
-  const { email, firstName, sessionPreference, timePreference, notes } = args;
-  console.log('\x1b[1m', '\x1b[31m', args, '\x1b[0m');
-  try {
-    await sessionPreference.map(async (session, index) => {
-      session &&
-        (await knex('students').insert({
-          email,
-          firstName,
-          sessionPreference: index + 1,
-          timePreference: timePreference[index],
-          notes: notes[index]
-        }));
-    });
-    return {
-      message: 'Successfully submitted',
-      status: 'success'
-    };
-  } catch (err) {
-    winston.error(err);
-    return {
-      message: 'Error adding child',
-      status: 'error'
-    };
   }
 };
 
 module.exports = {
   getParent,
   getParentStudents,
-  parentUpdate,
-  studentSignUp
+  parentUpdate
 };

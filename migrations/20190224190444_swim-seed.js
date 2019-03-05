@@ -9,7 +9,10 @@ exports.up = async knex => {
   });
   await knex.schema.createTableIfNotExists('parents', function(table) {
     table.increments('parentId');
-    table.string('email').notNullable();
+    table
+      .string('email')
+      .notNullable()
+      .unique();
     table.string('firstName');
     table.string('lastName');
     table.string('fullName');

@@ -9,7 +9,7 @@ const typeDefs = gql`
     phone: String
   }
 
-  type Children {
+  type Students {
     firstName: String
     sessionPreference: String
     timePreference: String
@@ -24,7 +24,7 @@ const typeDefs = gql`
 
   type Query {
     getParent(email: String!): Parent
-    getParentStudents(email: String!): [Children]
+    getParentStudents(email: String!): [Students]
   }
   type Mutation {
     parentUpdate(
