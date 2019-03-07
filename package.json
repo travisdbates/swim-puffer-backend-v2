@@ -35,5 +35,8 @@
     "seed": "node ./seed/seed.js"
   },
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "faker": "^4.1.0"
+  }
 }

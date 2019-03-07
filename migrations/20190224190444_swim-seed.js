@@ -1,3 +1,4 @@
+const faker = require('faker');
 exports.up = async knex => {
   await knex.schema.createTableIfNotExists('sessions', function(table) {
     table.increments('sessionId');
@@ -43,35 +44,19 @@ exports.up = async knex => {
       phone: '8011231234'
     }
   ]);
-  await knex('students').insert([
-    {
-      email: 'test@test.com',
-      firstName: 'Bobby',
-      lastName: 'Bobberson',
-      fullName: 'Bobby Bobberson',
-      sessionPreference: 1,
-      timePreference: 1,
-      notes: 'Here are some notes for this child'
-    },
-    {
-      email: 'test@test.com',
-      firstName: 'Freddy',
-      lastName: 'Fredderson',
-      fullName: 'Freddy Fredderson',
-      sessionPreference: 1,
-      timePreference: 2,
-      notes: 'Here are some notes for this child'
-    },
-    {
-      email: 'test@test.com',
-      firstName: 'Jimmy',
-      lastName: 'Jimmerson',
-      fullName: 'Jimmy Jimmerson',
-      sessionPreference: 1,
-      timePreference: 3,
-      notes: 'Here are some notes for this child'
-    }
-  ]);
+
+  for (let i = 0; i < 500; i++) {
+    await knex('students').insert([
+      {
+        email: 'test@test.com',
+        firstName: faker.name.firstName(),
+        lastName: faker.name.lastName(),
+        sessionPreference: Math.floor(Math.random() * 6) + 1,
+        timePreference: Math.floor(Math.random() * 3) + 1,
+        notes: faker.lorem.sentence()
+      }
+    ]);
+  }
 };
 
 exports.down = async knex => {
