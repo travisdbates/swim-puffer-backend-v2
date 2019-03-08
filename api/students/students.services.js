@@ -2,8 +2,22 @@ const { knex } = require('../../utils/db');
 const { winston } = require('../../utils');
 
 const studentSignUp = async (_, args, ctx) => {
-  const { email, firstName, sessionPreference, timePreference, notes } = args;
-  winston.info({ email, firstName, sessionPreference, timePreference, notes });
+  const {
+    email,
+    firstName,
+    sessionPreference,
+    timePreference,
+    notes,
+    age
+  } = args;
+  winston.info({
+    email,
+    firstName,
+    sessionPreference,
+    timePreference,
+    notes,
+    age
+  });
   try {
     await sessionPreference.map(async (session, index) => {
       session &&
@@ -12,7 +26,8 @@ const studentSignUp = async (_, args, ctx) => {
           firstName,
           sessionPreference: index + 1,
           timePreference: timePreference[index],
-          notes: notes[index]
+          notes: notes[index],
+          age
         }));
     });
     return {
@@ -28,6 +43,15 @@ const studentSignUp = async (_, args, ctx) => {
   }
 };
 
+const getAllStudents = async (_, args, ctx) => {
+  try {
+    return await knex('students').select('*');
+  } catch (err) {
+    winston.error(err);
+  }
+};
+
 module.exports = {
-  studentSignUp
+  studentSignUp,
+  getAllStudents
 };

@@ -25,6 +25,7 @@ const typeDefs = gql`
   type Query {
     getParent(email: String!): Parent
     getParentStudents(email: String!): [Students]
+    getAllStudents: [Students]
   }
   type Mutation {
     parentUpdate(
@@ -39,6 +40,7 @@ const typeDefs = gql`
       sessionPreference: [Boolean]!
       timePreference: [Int]!
       notes: [String]
+      age: Int
     ): Message!
   }
 `;
