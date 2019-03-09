@@ -15,6 +15,9 @@ const typeDefs = gql`
     timePreference: String
     sessionAssigned: String
     timeAssigned: String
+    age: Int
+    created_at: String
+    id: ID
   }
 
   type Message {
@@ -42,6 +45,7 @@ const typeDefs = gql`
       notes: [String]
       age: Int
     ): Message!
+    studentUpdate(email: String!, firstName: String!, age: Int): Students!
   }
 `;
 

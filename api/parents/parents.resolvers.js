@@ -6,7 +6,8 @@ const {
 
 const {
   studentSignUp,
-  getAllStudents
+  getAllStudents,
+  studentUpdate
 } = require('../students/students.services');
 
 const resolvers = {
@@ -17,7 +18,8 @@ const resolvers = {
   },
   Mutation: {
     parentUpdate,
-    studentSignUp
+    studentSignUp,
+    studentUpdate
   }
 };
 
