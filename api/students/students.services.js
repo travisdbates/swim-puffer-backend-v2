@@ -5,33 +5,89 @@ const studentUpdate = async (_, args, ctx) => {
   const {
     email,
     firstName,
-    sessionPreference,
-    timePreference,
+    sessionAssigned,
+    timeAssigned,
     notes,
-    age
+    age,
+    sideAssigned
   } = args;
   winston.info('Update student: ', {
     email,
     firstName,
-    age
+    age,
+    timeAssigned,
+    sessionAssigned,
+    sideAssigned
   });
   try {
-    console.log('\x1b[1m', '\x1b[36m', { age, firstName, age }, '\x1b[0m');
-    let updatedStudent = await knex('students')
-      .where({
-        email,
-        firstName
-      })
-      .update({
-        age
-      })
-      .returning('*');
-    updatedStudent = updatedStudent[0];
-    console.log('\x1b[1m', '\x1b[32m', { updatedStudent }, '\x1b[0m');
-    return {
-      ...updatedStudent,
-      id: studentId
-    };
+    if (age) {
+      console.log('\x1b[1m', '\x1b[36m', { age, firstName, age }, '\x1b[0m');
+      let updatedStudent = await knex('students')
+        .where({
+          email,
+          firstName
+        })
+        .update({
+          age
+        })
+        .returning('*');
+      updatedStudent = updatedStudent[0];
+      console.log('\x1b[1m', '\x1b[32m', { updatedStudent }, '\x1b[0m');
+      return {
+        ...updatedStudent,
+        id: updatedStudent.studentId
+      };
+    } else if (timeAssigned) {
+      console.log('\x1b[1m', '\x1b[36m', { age, firstName, age }, '\x1b[0m');
+      let updatedStudent = await knex('students')
+        .where({
+          email,
+          firstName
+        })
+        .update({
+          timeAssigned
+        })
+        .returning('*');
+      updatedStudent = updatedStudent[0];
+      console.log('\x1b[1m', '\x1b[32m', { updatedStudent }, '\x1b[0m');
+      return {
+        ...updatedStudent,
+        id: updatedStudent.studentId
+      };
+    } else if (sessionAssigned) {
+      console.log('\x1b[1m', '\x1b[36m', { age, firstName, age }, '\x1b[0m');
+      let updatedStudent = await knex('students')
+        .where({
+          email,
+          firstName
+        })
+        .update({
+          sessionAssigned
+        })
+        .returning('*');
+      updatedStudent = updatedStudent[0];
+      console.log('\x1b[1m', '\x1b[32m', { updatedStudent }, '\x1b[0m');
+      return {
+        ...updatedStudent,
+        id: updatedStudent.studentId
+      };
+    } else if (sideAssigned) {
+      let updatedStudent = await knex('students')
+        .where({
+          email,
+          firstName
+        })
+        .update({
+          sideAssigned
+        })
+        .returning('*');
+      updatedStudent = updatedStudent[0];
+      console.log('\x1b[1m', '\x1b[32m', { updatedStudent }, '\x1b[0m');
+      return {
+        ...updatedStudent,
+        id: updatedStudent.studentId
+      };
+    }
   } catch (err) {
     winston.error('Error updating student: ', err);
     return {
@@ -85,7 +141,15 @@ const studentSignUp = async (_, args, ctx) => {
 
 const getAllStudents = async (_, args, ctx) => {
   try {
-    return await knex('students').select('*');
+    let students = await knex('students').select('*');
+    students = students.map(student => {
+      return {
+        ...student,
+        id: student.studentId
+      };
+    });
+    console.log('\x1b[1m', '\x1b[36m', { students }, '\x1b[0m');
+    return students;
   } catch (err) {
     winston.error(err);
   }

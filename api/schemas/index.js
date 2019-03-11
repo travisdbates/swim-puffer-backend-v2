@@ -7,6 +7,7 @@ const typeDefs = gql`
     fullName: String
     email: String!
     phone: String
+    admin: Boolean
   }
 
   type Students {
@@ -15,8 +16,10 @@ const typeDefs = gql`
     timePreference: String
     sessionAssigned: String
     timeAssigned: String
+    sideAssigned: String
     age: Int
     created_at: String
+    email: String
     id: ID
   }
 
@@ -45,7 +48,15 @@ const typeDefs = gql`
       notes: [String]
       age: Int
     ): Message!
-    studentUpdate(email: String!, firstName: String!, age: Int): Students!
+    studentUpdate(
+      id: ID
+      email: String!
+      firstName: String!
+      age: Int
+      timeAssigned: Int
+      sessionAssigned: Int
+      sideAssigned: String
+    ): Students!
   }
 `;
 
