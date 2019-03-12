@@ -21,6 +21,7 @@ const typeDefs = gql`
     created_at: String
     email: String
     id: ID
+    notes: String
   }
 
   type Message {
