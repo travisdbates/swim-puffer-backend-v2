@@ -20,7 +20,6 @@ const getParent = async (_, { email }, ctx) => {
 const getParentStudents = async (_, { email }, ctx) => {
   try {
     let temp = await knex('students').where({ email });
-    console.log('\x1b[1m', '\x1b[36m', { temp }, '\x1b[0m');
     return temp.map(student => {
       return {
         ...student,

@@ -7,6 +7,7 @@ const studentUpdate = async (_, args, ctx) => {
     firstName,
     sessionAssigned,
     timeAssigned,
+    sessionPreference,
     notes,
     age,
     sideAssigned
@@ -15,58 +16,70 @@ const studentUpdate = async (_, args, ctx) => {
     email,
     firstName,
     age,
+    sessionPreference,
     timeAssigned,
     sessionAssigned,
     sideAssigned
   });
   try {
+    console.log(
+      '\x1b[1m',
+      '\x1b[36m',
+      {
+        email,
+        firstName,
+        age,
+        sessionPreference,
+        timeAssigned,
+        sessionAssigned,
+        sideAssigned
+      },
+      '\x1b[0m'
+    );
     if (age) {
-      console.log('\x1b[1m', '\x1b[36m', { age, firstName, age }, '\x1b[0m');
       let updatedStudent = await knex('students')
         .where({
           email,
-          firstName
+          firstName,
+          sessionPreference
         })
         .update({
           age
         })
         .returning('*');
       updatedStudent = updatedStudent[0];
-      console.log('\x1b[1m', '\x1b[32m', { updatedStudent }, '\x1b[0m');
       return {
         ...updatedStudent,
         id: updatedStudent.studentId
       };
     } else if (timeAssigned) {
-      console.log('\x1b[1m', '\x1b[36m', { age, firstName, age }, '\x1b[0m');
       let updatedStudent = await knex('students')
         .where({
           email,
-          firstName
+          firstName,
+          sessionPreference
         })
         .update({
           timeAssigned
         })
         .returning('*');
       updatedStudent = updatedStudent[0];
-      console.log('\x1b[1m', '\x1b[32m', { updatedStudent }, '\x1b[0m');
       return {
         ...updatedStudent,
         id: updatedStudent.studentId
       };
     } else if (sessionAssigned) {
-      console.log('\x1b[1m', '\x1b[36m', { age, firstName, age }, '\x1b[0m');
       let updatedStudent = await knex('students')
         .where({
           email,
-          firstName
+          firstName,
+          sessionPreference
         })
         .update({
           sessionAssigned
         })
         .returning('*');
       updatedStudent = updatedStudent[0];
-      console.log('\x1b[1m', '\x1b[32m', { updatedStudent }, '\x1b[0m');
       return {
         ...updatedStudent,
         id: updatedStudent.studentId
@@ -75,14 +88,14 @@ const studentUpdate = async (_, args, ctx) => {
       let updatedStudent = await knex('students')
         .where({
           email,
-          firstName
+          firstName,
+          sessionPreference
         })
         .update({
           sideAssigned
         })
         .returning('*');
       updatedStudent = updatedStudent[0];
-      console.log('\x1b[1m', '\x1b[32m', { updatedStudent }, '\x1b[0m');
       return {
         ...updatedStudent,
         id: updatedStudent.studentId
@@ -141,14 +154,26 @@ const studentSignUp = async (_, args, ctx) => {
 
 const getAllStudents = async (_, args, ctx) => {
   try {
-    let students = await knex('students').select('*');
+    let students = await knex('students')
+      .join('parents', { 'parents.email': 'students.email' })
+      .select(
+        'students.studentId',
+        'students.email',
+        'students.firstName',
+        'students.lastName',
+        'students.fullName',
+        'students.sessionPreference',
+        'students.sessionAssigned',
+        'students.notes',
+        'parents.firstName as parentFirst',
+        'parents.lastName as parentLast'
+      );
     students = students.map(student => {
       return {
         ...student,
         id: student.studentId
       };
     });
-    console.log('\x1b[1m', '\x1b[36m', { students }, '\x1b[0m');
     return students;
   } catch (err) {
     winston.error(err);

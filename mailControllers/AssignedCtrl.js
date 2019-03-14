@@ -3,29 +3,29 @@ const nodemailer = require('nodemailer');
 var htmlToText = require('nodemailer-html-to-text').htmlToText;
 
 module.exports = {
-  sendEmail(req, res) {
+  sendEmail(child) {
     let sessions = [
       'April 10 - May 3',
       'May 7 - May 17',
       'May 29 - June 14',
       'June 18 - June 28',
-      'August 7 - August 23',
+      'August 7 - August 23'
     ];
     // create reusable transporter object using the default SMTP transport
     let transporter = nodemailer.createTransport({
-      service: 'Mailgun',
+      service: 'gmail',
       auth: {
-        user: 'postmaster@mg.swimpufferfish.com',
-        pass: process.env.emailpass,
-      },
+        user: 'pufferfishswimlessons@gmail.com',
+        pass: ''
+      }
     });
     transporter.use('compile', htmlToText());
 
     console.log('req.body', req.body);
     // setup email data with unicode symbols
     let mailOptions = {
-      from: `"Power Road Puffer Fish" <signup@swimpufferfish.com>`, // sender address
-      to: req.body.child.email, // list of receivers
+      from: `"Power Road Puffer Fish" <pufferfishswimlessons@swimpufferfish.com>`, // sender address
+      to: child.email, // list of receivers
       subject: `Your time has been assigned!`, // Subject line
       // text: 'testing one two on two', // plain text body
       html: `
@@ -36,17 +36,19 @@ module.exports = {
                      
                      <h3> Hello!</h3></div>
 
-                     <p>Your time has been assigned for <strong>${req.body.child.childfirst}!</strong><br>
+                     <p>Your time has been assigned for <strong>${
+                       child.childfirst
+                     }!</strong><br>
                     Your session time will be at <strong>${
-                      req.body.time.time
+                      child.time
                     }</strong>. You can also check your dashboard on our website to <a href="http://swimpufferfish.com/dash">view your schedule</a>.<br><br>
     
-                    Child Name: ${req.body.child.childfirst}<br/>
-                    Session: ${req.body.child.session_id} | ${sessions[req.body.child.session_id - 1]}<br/>
-                    Time: ${req.body.time.time}<br/><br/>
+                    Child Name: ${child.childfirst}<br/>
+                    Session: ${child.session_id}<br/>
+                    Time: ${child.time}<br/><br/>
 
                     IMPORTANT: Please click <a href="mailto:swimpufferfish@gmail.com?subject=${
-                      req.body.child.childfirst
+                      child.childfirst
                     } Assigned Time">here</a> and send an email to confirm that this time works for you, or email us at <a href="mailto:swimpufferfish@gmail.com">swimpufferfish@gmail.com</a>.<br/>
                     
                     We need to know you received this email and that you will be doing this session, and we must hear from everyone!<br/><br/>
@@ -61,16 +63,23 @@ module.exports = {
   <div style="width: 500px; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: #55B3B0; color: white; margin-top: 15px; padding: 15px;">
                       <strong>Thank you!</strong>
                     <span>Pufferfish Swim Team</span><span style="font-size: 8; margin-top: 5px">Please do not reply to this email</span></div>
-            `,
+            `
     };
 
     // send mail with defined transport object
     transporter.sendMail(mailOptions, (error, info) => {
       if (error) {
         console.log(error);
+        return {
+          status: 'error',
+          data: error
+        };
       }
       console.log('Message %s send: %s', info);
-      res.status(200).send(info);
+      return {
+        status: 'success',
+        data: null
+      };
     });
-  },
+  }
 };

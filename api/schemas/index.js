@@ -53,6 +53,7 @@ const typeDefs = gql`
       id: ID
       email: String!
       firstName: String!
+      sessionPreference: Int!
       age: Int
       timeAssigned: Int
       sessionAssigned: Int
