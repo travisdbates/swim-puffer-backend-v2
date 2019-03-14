@@ -25,20 +25,6 @@ const studentUpdate = async (_, args, ctx) => {
     emailSent
   });
   try {
-    console.log(
-      '\x1b[1m',
-      '\x1b[36m',
-      {
-        email,
-        firstName,
-        age,
-        sessionPreference,
-        timeAssigned,
-        sessionAssigned,
-        sideAssigned
-      },
-      '\x1b[0m'
-    );
     if (age) {
       let updatedStudent = await knex('students')
         .where({
@@ -118,7 +104,12 @@ const studentUpdate = async (_, args, ctx) => {
         session_id: studentLookup.sessionAssigned,
         time: studentLookup.timeAssigned
       });
-
+      winston.info('Sending email: ', {
+        email: args.email,
+        childfirst: args.firstName,
+        session_id: studentLookup.sessionAssigned,
+        time: studentLookup.timeAssigned
+      });
       if (result) {
         winston.error(result);
         return {
@@ -213,7 +204,6 @@ const getAllStudents = async (_, args, ctx) => {
         'parents.lastName as parentLast'
       );
     students = students.map(student => {
-      console.log(student);
       return {
         ...student,
         id: student.studentId
