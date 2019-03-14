@@ -22,6 +22,7 @@ const typeDefs = gql`
     email: String
     id: ID
     notes: String
+    emailSent: Boolean
   }
 
   type Message {
@@ -58,6 +59,7 @@ const typeDefs = gql`
       timeAssigned: Int
       sessionAssigned: Int
       sideAssigned: String
+      emailSent: Boolean
     ): Students!
   }
 `;

@@ -1,33 +1,29 @@
 require('dotenv').config();
 const nodemailer = require('nodemailer');
 var htmlToText = require('nodemailer-html-to-text').htmlToText;
+const { sessions, times } = require('./timeHelper');
 
 module.exports = {
-  sendEmail(child) {
-    let sessions = [
-      'April 10 - May 3',
-      'May 7 - May 17',
-      'May 29 - June 14',
-      'June 18 - June 28',
-      'August 7 - August 23'
-    ];
+  sendEmail: async child => {
+    console.log('\x1b[1m', '\x1b[36m', child, '\x1b[0m');
     // create reusable transporter object using the default SMTP transport
     let transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: 'pufferfishswimlessons@gmail.com',
-        pass: ''
+        user: process.env.EMAIL,
+        pass: process.env.EMAIL_PASSWORD
       }
     });
     transporter.use('compile', htmlToText());
 
-    console.log('req.body', req.body);
     // setup email data with unicode symbols
     let mailOptions = {
-      from: `"Power Road Puffer Fish" <pufferfishswimlessons@swimpufferfish.com>`, // sender address
+      from: process.env.EMAIL, // sender address
       to: child.email, // list of receivers
       subject: `Your time has been assigned!`, // Subject line
-      // text: 'testing one two on two', // plain text body
+      text: `Your time has been assigned for ${child.childFirst}. ${
+        times[child.time]
+      } at  ${sessions[child.session_id]}.`, // plain text body
       html: `
       <div style="font-family: Arial, sans-serif">
       <div style="width: 500px;height; display: flex; flex-direction: column; justify-content: center; align-items: center">
@@ -40,12 +36,12 @@ module.exports = {
                        child.childfirst
                      }!</strong><br>
                     Your session time will be at <strong>${
-                      child.time
+                      times[child.time]
                     }</strong>. You can also check your dashboard on our website to <a href="http://swimpufferfish.com/dash">view your schedule</a>.<br><br>
     
                     Child Name: ${child.childfirst}<br/>
-                    Session: ${child.session_id}<br/>
-                    Time: ${child.time}<br/><br/>
+                    Session: ${sessions[child.session_id]}<br/>
+                    Time: ${times[child.time]}<br/><br/>
 
                     IMPORTANT: Please click <a href="mailto:swimpufferfish@gmail.com?subject=${
                       child.childfirst
@@ -67,19 +63,6 @@ module.exports = {
     };
 
     // send mail with defined transport object
-    transporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        console.log(error);
-        return {
-          status: 'error',
-          data: error
-        };
-      }
-      console.log('Message %s send: %s', info);
-      return {
-        status: 'success',
-        data: null
-      };
-    });
+    await transporter.sendMail(mailOptions);
   }
 };

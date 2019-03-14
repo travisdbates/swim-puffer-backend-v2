@@ -1,5 +1,6 @@
 const { knex } = require('../../utils/db');
 const { winston } = require('../../utils');
+const { sendEmail } = require('../../mailControllers/AssignedCtrl');
 
 const studentUpdate = async (_, args, ctx) => {
   const {
@@ -10,7 +11,8 @@ const studentUpdate = async (_, args, ctx) => {
     sessionPreference,
     notes,
     age,
-    sideAssigned
+    sideAssigned,
+    emailSent
   } = args;
   winston.info('Update student: ', {
     email,
@@ -19,7 +21,8 @@ const studentUpdate = async (_, args, ctx) => {
     sessionPreference,
     timeAssigned,
     sessionAssigned,
-    sideAssigned
+    sideAssigned,
+    emailSent
   });
   try {
     console.log(
@@ -100,6 +103,44 @@ const studentUpdate = async (_, args, ctx) => {
         ...updatedStudent,
         id: updatedStudent.studentId
       };
+    } else if (emailSent) {
+      let studentLookup = await knex('students')
+        .where({
+          email,
+          firstName,
+          sessionPreference
+        })
+        .returning('*')
+        .first();
+      let result = await sendEmail({
+        email: args.email,
+        childfirst: args.firstName,
+        session_id: studentLookup.sessionAssigned,
+        time: studentLookup.timeAssigned
+      });
+
+      if (result) {
+        winston.error(result);
+        return {
+          status: 'error',
+          message: 'Not able to send email'
+        };
+      } else {
+        let updatedStudent = await knex('students')
+          .where({
+            email,
+            firstName,
+            sessionPreference
+          })
+          .update({
+            emailSent
+          })
+          .returning('*');
+        return {
+          ...updatedStudent,
+          id: updatedStudent.studentId
+        };
+      }
     }
   } catch (err) {
     winston.error('Error updating student: ', err);
@@ -164,11 +205,15 @@ const getAllStudents = async (_, args, ctx) => {
         'students.fullName',
         'students.sessionPreference',
         'students.sessionAssigned',
+        'students.timeAssigned',
+        'students.timePreference',
+        'students.emailSent',
         'students.notes',
         'parents.firstName as parentFirst',
         'parents.lastName as parentLast'
       );
     students = students.map(student => {
+      console.log(student);
       return {
         ...student,
         id: student.studentId
