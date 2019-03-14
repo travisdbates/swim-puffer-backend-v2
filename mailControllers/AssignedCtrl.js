@@ -8,7 +8,7 @@ module.exports = {
     console.log('\x1b[1m', '\x1b[36m', child, '\x1b[0m');
     // create reusable transporter object using the default SMTP transport
     let transporter = nodemailer.createTransport({
-      service: 'gmail',
+      service: 'Mailgun',
       auth: {
         user: process.env.EMAIL,
         pass: process.env.EMAIL_PASSWORD
@@ -18,7 +18,7 @@ module.exports = {
 
     // setup email data with unicode symbols
     let mailOptions = {
-      from: process.env.EMAIL, // sender address
+      from: process.env.EMAIL_FROM, // sender address
       to: child.email, // list of receivers
       subject: `Your time has been assigned!`, // Subject line
       text: `Your time has been assigned for ${child.childFirst}. ${
