@@ -21,6 +21,7 @@
     "monk": "^6.0.6",
     "nodemailer": "^4.4.2",
     "nodemailer-html-to-text": "^2.1.0",
+    "nodemailer-mailgun-transport": "^1.4.0",
     "npm": "^6.7.0",
     "npm-run-all": "^4.1.2",
     "passport": "^0.4.0",

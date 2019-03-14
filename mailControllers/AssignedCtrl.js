@@ -2,19 +2,22 @@ require('dotenv').config();
 const nodemailer = require('nodemailer');
 var htmlToText = require('nodemailer-html-to-text').htmlToText;
 const { sessions, times } = require('./timeHelper');
+var mg = require('nodemailer-mailgun-transport');
 
 module.exports = {
   sendEmail: async child => {
     console.log('\x1b[1m', '\x1b[36m', child, '\x1b[0m');
     // create reusable transporter object using the default SMTP transport
-    let transporter = nodemailer.createTransport({
-      service: 'Mailgun',
+    let auth = {
       auth: {
-        user: process.env.EMAIL,
-        pass: process.env.EMAIL_PASSWORD
+        api_key: process.env.MAILGUN_API_KEY,
+        domain: process.env.MAILGUN_DOMAIN
       }
-    });
-    transporter.use('compile', htmlToText());
+    };
+
+    var nodemailerMailgun = nodemailer.createTransport(mg(auth));
+
+    // transporter.use('compile', htmlToText());
 
     // setup email data with unicode symbols
     let mailOptions = {
@@ -63,6 +66,7 @@ module.exports = {
     };
 
     // send mail with defined transport object
-    await transporter.sendMail(mailOptions);
+    // await transporter.sendMail(mailOptions);
+    await nodemailerMailgun.sendMail(mailOptions);
   }
 };
