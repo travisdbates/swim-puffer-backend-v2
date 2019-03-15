@@ -30,7 +30,7 @@ module.exports = {
       html: `
       <div style="font-family: Arial, sans-serif">
       <div style="width: 500px;height; display: flex; flex-direction: column; justify-content: center; align-items: center">
-        <img src="https://i.imgur.com/TboiVhr.png" style='width: 150px'/></div>
+        </div>
                    <div style="width: 500px; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: #55B3B0; color: white; margin-top: 15px; padding: 15px;">
                      
                      <h3> Hello!</h3></div>
