@@ -191,6 +191,7 @@ const getAllStudents = async (_, args, ctx) => {
       .select(
         'students.studentId',
         'students.email',
+        'students.age',
         'students.firstName',
         'students.lastName',
         'students.fullName',
