@@ -193,8 +193,6 @@ const getAllStudents = async (_, args, ctx) => {
         'students.email',
         'students.age',
         'students.firstName',
-        'students.lastName',
-        'students.fullName',
         'students.sessionPreference',
         'students.sessionAssigned',
         'students.timeAssigned',
@@ -202,7 +200,8 @@ const getAllStudents = async (_, args, ctx) => {
         'students.emailSent',
         'students.notes',
         'parents.firstName as parentFirst',
-        'parents.lastName as parentLast'
+        'parents.lastName as parentLast',
+        'parents.phone'
       );
     students = students.map(student => {
       return {

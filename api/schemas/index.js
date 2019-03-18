@@ -23,6 +23,9 @@ const typeDefs = gql`
     id: ID
     notes: String
     emailSent: Boolean
+    parentFirst: String
+    parentLast: String
+    phone: String
   }
 
   type Message {
