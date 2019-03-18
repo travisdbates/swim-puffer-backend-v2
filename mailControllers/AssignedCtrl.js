@@ -48,7 +48,9 @@ module.exports = {
 
                     IMPORTANT: Please click <a href="mailto:swimpufferfish@gmail.com?subject=${
                       child.childfirst
-                    } Assigned Time">here</a> and send an email to confirm that this time works for you, or email us at <a href="mailto:swimpufferfish@gmail.com">swimpufferfish@gmail.com</a>.<br/>
+                    } Assigned Time - ${sessions[child.session_id]} Time: ${
+        times[child.time]
+      }">here</a> and send an email to confirm that this time works for you, or email us at <a href="mailto:swimpufferfish@gmail.com">swimpufferfish@gmail.com</a>.<br/>
                     
                     We need to know you received this email and that you will be doing this session, and we must hear from everyone!<br/><br/>
 
