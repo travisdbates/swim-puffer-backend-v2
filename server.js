@@ -48,26 +48,27 @@ server = new ApolloServer({
 server.applyMiddleware({ app });
 
 app.use(cors());
-app.options('/graphql', cors())
+// app.options('/graphql', cors())
 app.use(bodyParser.json());
 
 // Connection URL
 
-const url = config.mongo_uri;
-const db = monk(url);
+// const url = config.mongo_uri;
+// const db = monk(url);
 
 let port = process.env.PORT || 4000;
+app.listen({ port }, () => winston.info(`🚀 Server ready at ${port}`));
 
 app.get('/helloworld', (req, res, next) => {
   res.status(200).send('Hello world!');
 });
 
-db.then(() => {
-  winston.log('info', 'Connected to mongo server');
-  app.listen({ port }, () => winston.info(`🚀 Server ready at ${port}`));
-}).catch(err => {
-  winston.error(err);
-});
+// db.then(() => {
+//   winston.log('info', 'Connected to mongo server');
+//   app.listen({ port }, () => winston.info(`🚀 Server ready at ${port}`));
+// }).catch(err => {
+//   winston.error(err);
+// });
 
 // const session = require('express-session');
 // const bodyParser = require('body-parser');
