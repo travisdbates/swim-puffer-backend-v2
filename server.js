@@ -33,6 +33,7 @@ server = new ApolloServer({
   playground: true,
   context: async ({ req }) => {
     try {
+      console.log(req.headers.id)
       let { email } = jwt.decode(req.headers.id);
       return {
         headers: {
