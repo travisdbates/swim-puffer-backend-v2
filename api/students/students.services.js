@@ -173,7 +173,7 @@ const studentSignUp = async (_, args, ctx) => {
         }));
     });
 
-    ConstantSourceNode.log({
+    console.log({
       email,
       firstName,
       sessionPreference,
