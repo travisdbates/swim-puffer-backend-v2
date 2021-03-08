@@ -34,7 +34,10 @@ server = new ApolloServer({
   context: async ({ req }) => {
     try {
       console.log(req.headers.id)
+      const { knex } = require('./utils/db');
       let { email } = jwt.decode(req.headers.id);
+      let temp = await knex('parents').where({ email }).first();
+      console.log({email, temp})
       return {
         headers: {
           ...req.headers,
