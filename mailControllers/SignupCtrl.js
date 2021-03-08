@@ -53,14 +53,11 @@ module.exports = {
           else {
             return (
               '<strong>' +
-              ' ' +
+              'Session ' +
               index + 1 +
               '</strong>' +
-              ' | ' +
-              '<strong>' +
-              sessionPreference[sessionID - 1].days +
               '</strong>' +
-              ' | ' +
+              ' | Time Preference ' +
               times[timePreference[index] - 1] +
               '<br/>'
             )
