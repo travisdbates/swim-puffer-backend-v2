@@ -1,6 +1,7 @@
 require('dotenv').config();
 const nodemailer = require('nodemailer');
 var htmlToText = require('nodemailer-html-to-text').htmlToText;
+var mg = require('nodemailer-mailgun-transport');
 
 module.exports = {
   sendSignupEmail: async ({ email,
