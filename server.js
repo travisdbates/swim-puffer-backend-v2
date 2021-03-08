@@ -49,7 +49,7 @@ server = new ApolloServer({
 server.applyMiddleware({ app });
 
 app.use(cors());
-// app.options('/graphql', cors())
+app.options('/graphql', cors())
 app.use(bodyParser.json());
 
 // Connection URL
