@@ -173,6 +173,16 @@ const studentSignUp = async (_, args, ctx) => {
         }));
     });
 
+    ConstantSourceNode.log({
+      email,
+      firstName,
+      sessionPreference,
+      timePreference,
+      notes,
+      age
+    }
+    )
+
     await sendSignupEmail({
       email,
       firstName,
