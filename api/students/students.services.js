@@ -1,6 +1,7 @@
 const { knex } = require('../../utils/db');
 const { winston } = require('../../utils');
 const { sendEmail } = require('../../mailControllers/AssignedCtrl');
+const { sendSignupEmail } = require('../../mailControllers/SignupCtrl');
 
 const studentUpdate = async (_, args, ctx) => {
   const {
@@ -171,6 +172,16 @@ const studentSignUp = async (_, args, ctx) => {
           age
         }));
     });
+
+    await sendSignupEmail({
+      email,
+      firstName,
+      sessionPreference,
+      timePreference,
+      notes,
+      age
+    });
+
     return {
       message: 'Successfully submitted',
       status: 'success'
