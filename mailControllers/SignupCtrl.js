@@ -27,13 +27,13 @@ module.exports = {
     };
 
     var nodemailerMailgun = nodemailer.createTransport(mg(auth));
-    transporter.use('compile', htmlToText());
+    // transporter.use('compile', htmlToText());
 
     console.log(firstName, email, sessionPreference)
 
     // setup email data with unicode symbols
     let mailOptions = {
-      from: `"Power Road Puffer Fish" <signup@swimpufferfish.com>`, // sender address
+      from: process.env.EMAIL_FROM, // sender address
       to: email, // list of receivers
       subject: `You have signed up!`, // Subject line
 
@@ -48,8 +48,23 @@ module.exports = {
                     Pufferfish Swim Lessons</strong></span><br>
                     <span>Here's what you signed up for:<br><br> 
                       
-                      ${sessionPreference.map((sessionID, index) => {
-          console.log(sessionID);
+                      ${sessionPreference.map((signup, index) => {
+          if (!signup) return
+          else {
+            return (
+              '<strong>' +
+              ' ' +
+              index + 1 +
+              '</strong>' +
+              ' | ' +
+              '<strong>' +
+              sessionPreference[sessionID - 1].days +
+              '</strong>' +
+              ' | ' +
+              times[timePreference[index] - 1] +
+              '<br/>'
+            )
+          }
           return (
             '<strong>' +
             ' ' +
@@ -65,7 +80,9 @@ module.exports = {
             times[req.body.time[index] - 1] +
             '<br/>'
           );
-        })}<br><br>
+        })}
+        
+        <br><br>
                     We'll do our best to assign you a class within your preferred time preference. Please allow 2 - 3 weeks for us to process your reservation. You'll be notified once your class time has been assigned!</span><br><br>
   </div>
   
