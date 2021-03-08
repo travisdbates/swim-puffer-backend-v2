@@ -42,8 +42,8 @@ module.exports = {
         <img src="https://i.imgur.com/TboiVhr.png" style='width: 150px'/></div>
                    <div style="width: 500px; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: #55B3B0; color: white; margin-top: 15px; padding: 15px;">
                      
-                     <h3> Hello ${firstName}!</h3></div>
-                    <div style="width: 455px;height; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; padding: 15px"><span>Your child <strong>${req.body.name
+                     <h3> Hello!</h3></div>
+                    <div style="width: 455px;height; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; padding: 15px"><span>Your child <strong>${firstName
         }</strong> has just been signed up for swim lessons with <strong>Power Road
                     Pufferfish Swim Lessons</strong></span><br>
                     <span>Here's what you signed up for:<br><br> 
