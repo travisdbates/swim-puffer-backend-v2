@@ -62,21 +62,6 @@ module.exports = {
               '<br/>'
             )
           }
-          return (
-            '<strong>' +
-            ' ' +
-            sessionPreference[sessionID - 1].name +
-            '</strong>' +
-            ' | ' +
-            sessionPreference[sessionID - 1].dates +
-            ' | ' +
-            '<strong>' +
-            sessionPreference[sessionID - 1].days +
-            '</strong>' +
-            ' | ' +
-            times[req.body.time[index] - 1] +
-            '<br/>'
-          );
         })}
         
         <br><br>
