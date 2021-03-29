@@ -54,7 +54,7 @@ module.exports = {
             return (
               '<strong>' +
               'Session ' +
-              index + 1 +
+              parseInt(index + 1) +
               '</strong>' +
               '</strong>' +
               ' | Time Preference ' +
