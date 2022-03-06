@@ -1,16 +1,12 @@
-require('dotenv').config();
-const { GraphQLServer } = require('graphql-yoga');
-const { ApolloServer, gql } = require('apollo-server-express');
-const bodyParser = require('body-parser');
-const cors = require('cors');
-const monk = require('monk');
-const express = require('express');
-const { winston } = require('./utils');
-const { typeDefs } = require('./api/schemas');
-const { resolvers } = require('./api/parents/parents.resolvers');
-const config = require('./config');
-const getUser = require('./utils/getUser');
-const jwt = require('jsonwebtoken');
+require("dotenv").config();
+const express = require("express");
+const { ApolloServer, gql } = require("apollo-server-express");
+const cors = require("cors");
+const { winston } = require("./utils");
+const { typeDefs } = require("./api/schemas");
+const { resolvers } = require("./api/parents/parents.resolvers");
+const jwt = require("jsonwebtoken");
+
 const app = express();
 
 // const typeDefs = gql`
@@ -33,82 +29,27 @@ server = new ApolloServer({
   playground: true,
   context: async ({ req }) => {
     try {
-      console.log(req.headers.id)
-      const { knex } = require('./utils/db');
       let { email } = jwt.decode(req.headers.id);
       return {
         headers: {
           ...req.headers,
-          email
-        }
+          email,
+        },
       };
     } catch (err) {
       winston.error(err);
     }
-  }
+  },
 });
 server.applyMiddleware({ app });
 
 app.use(cors());
-app.options('/graphql', cors())
-app.use(bodyParser.json());
-
-// Connection URL
-
-// const url = config.mongo_uri;
-// const db = monk(url);
+app.options("/graphql", cors());
+app.use(express.json());
 
 let port = process.env.PORT || 4000;
 app.listen({ port }, () => winston.info(`🚀 Server ready at ${port}`));
 
-app.get('/helloworld', (req, res, next) => {
-  res.status(200).send('Hello world!');
+app.get("/helloworld", (req, res, next) => {
+  res.status(200).send("Hello world!");
 });
-
-// db.then(() => {
-//   winston.log('info', 'Connected to mongo server');
-//   app.listen({ port }, () => winston.info(`🚀 Server ready at ${port}`));
-// }).catch(err => {
-//   winston.error(err);
-// });
-
-// const session = require('express-session');
-// const bodyParser = require('body-parser');
-// const massive = require('massive');
-// const passport = require('passport');
-// const Auth0Strategy = require('passport-auth0');
-// var logout = require('express-passport-logout');
-
-// const SignUpCtrl = require('./controllers/SignUpController');
-// const UserCtrl = require('./controllers/userController');
-// const AdminCtrl = require('./controllers/AdminController');
-// const MailSignUpCtrl = require('./mailControllers/SignupCtrl');
-// const MailAssignedCtrl = require('./mailControllers/AssignedCtrl');
-// const SwimTeamCtrl = require('./controllers/SwimTeamController');
-// const SwimTeamMailCtrl = require('./mailControllers/SwimTeamMailCtrl');
-
-// //ENDPOINTS ************************************************
-// app.get('/api/child/getall', SignUpCtrl.getAllChildren);
-// app.post('/api/child/create/:paid', SignUpCtrl.addChild);
-// app.post('/api/child/signup', SignUpCtrl.addSession);
-// app.get('/api/user/getchildren/:parent_email', UserCtrl.getUserChildren);
-// app.put('/api/user/newnotice/:parent_email', UserCtrl.updateNewNotice);
-// app.get('/api/admin/getall', AdminCtrl.adminGetAll);
-// app.get('/api/admin/gettimes', AdminCtrl.adminGetTimes);
-// app.post(
-//   '/api/admin/assigntime/:session_id/:time_id',
-//   AdminCtrl.adminAssignTime
-// );
-// app.post('/api/admin/timeslot/:session_id/:age', AdminCtrl.timeSlot);
-// app.put('/api/admin/email', AdminCtrl.emailSent);
-// app.get('/api/admin/swimteam', AdminCtrl.adminSwimTeamTimes);
-// app.get('/api/swimteamtimes', SwimTeamCtrl.getSwimTeamTimes);
-// app.post(
-//   '/api/swimteam/signup/:parent_email/:paid',
-//   SwimTeamCtrl.swimTeamSignUp
-// );
-// app.get('/api/swimteamsignups/:parent_email', SwimTeamCtrl.swimTeamGetByUser);
-// app.post('/api/email/signup', MailSignUpCtrl.sendEmail);
-// app.post('/api/email/swimteam', SwimTeamMailCtrl.sendEmail);
-// app.post('/api/email/assigned', MailAssignedCtrl.sendEmail);
-// app.put('/api/update/paid', UserCtrl.updatePaid);

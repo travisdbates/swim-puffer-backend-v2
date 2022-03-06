@@ -1,7 +1,7 @@
-const { knex } = require('../../utils/db');
-const { winston } = require('../../utils');
-const { sendEmail } = require('../../mailControllers/AssignedCtrl');
-const { sendSignupEmail } = require('../../mailControllers/SignupCtrl');
+const knex = require("../../knex/knex");
+const { winston } = require("../../utils");
+const { sendEmail } = require("../../mailControllers/AssignedCtrl");
+const { sendSignupEmail } = require("../../mailControllers/SignupCtrl");
 
 const studentUpdate = async (_, args, ctx) => {
   const {
@@ -13,9 +13,9 @@ const studentUpdate = async (_, args, ctx) => {
     notes,
     age,
     sideAssigned,
-    emailSent
+    emailSent,
   } = args;
-  winston.info('Update student: ', {
+  winston.info("Update student: ", {
     email,
     firstName,
     age,
@@ -23,153 +23,147 @@ const studentUpdate = async (_, args, ctx) => {
     timeAssigned,
     sessionAssigned,
     sideAssigned,
-    emailSent
+    emailSent,
   });
   try {
     if (age) {
-      let updatedStudent = await knex('students')
+      let updatedStudent = await knex("students")
         .where({
           email,
           firstName,
-          sessionPreference
+          sessionPreference,
         })
         .update({
-          age
+          age,
         })
-        .returning('*');
+        .returning("*");
       updatedStudent = updatedStudent[0];
       return {
         ...updatedStudent,
-        id: updatedStudent.studentId
+        id: updatedStudent.studentId,
       };
     } else if (timeAssigned) {
-      let updatedStudent = await knex('students')
+      let updatedStudent = await knex("students")
         .where({
           email,
           firstName,
-          sessionPreference
+          sessionPreference,
         })
         .update({
-          timeAssigned
+          timeAssigned,
         })
-        .returning('*');
+        .returning("*");
       updatedStudent = updatedStudent[0];
       return {
         ...updatedStudent,
-        id: updatedStudent.studentId
+        id: updatedStudent.studentId,
       };
     } else if (sessionAssigned) {
-      let updatedStudent = await knex('students')
+      let updatedStudent = await knex("students")
         .where({
           email,
           firstName,
-          sessionPreference
+          sessionPreference,
         })
         .update({
-          sessionAssigned
+          sessionAssigned,
         })
-        .returning('*');
+        .returning("*");
       updatedStudent = updatedStudent[0];
       return {
         ...updatedStudent,
-        id: updatedStudent.studentId
+        id: updatedStudent.studentId,
       };
     } else if (sideAssigned) {
-      let updatedStudent = await knex('students')
+      let updatedStudent = await knex("students")
         .where({
           email,
           firstName,
-          sessionPreference
+          sessionPreference,
         })
         .update({
-          sideAssigned
+          sideAssigned,
         })
-        .returning('*');
+        .returning("*");
       updatedStudent = updatedStudent[0];
       return {
         ...updatedStudent,
-        id: updatedStudent.studentId
+        id: updatedStudent.studentId,
       };
     } else if (emailSent) {
-      let studentLookup = await knex('students')
+      let studentLookup = await knex("students")
         .where({
           email,
           firstName,
-          sessionPreference
+          sessionPreference,
         })
-        .returning('*')
+        .returning("*")
         .first();
       let result = await sendEmail({
         email: args.email,
         childfirst: args.firstName,
         session_id: studentLookup.sessionAssigned,
-        time: studentLookup.timeAssigned
+        time: studentLookup.timeAssigned,
       });
-      winston.info('Sending email: ', {
+      winston.info("Sending email: ", {
         email: args.email,
         childfirst: args.firstName,
         session_id: studentLookup.sessionAssigned,
-        time: studentLookup.timeAssigned
+        time: studentLookup.timeAssigned,
       });
       if (result) {
         winston.error(result);
         return {
-          status: 'error',
-          message: 'Not able to send email'
+          status: "error",
+          message: "Not able to send email",
         };
       } else {
-        let updatedStudent = await knex('students')
+        let updatedStudent = await knex("students")
           .where({
             email,
             firstName,
-            sessionPreference
+            sessionPreference,
           })
           .update({
-            emailSent
+            emailSent,
           })
-          .returning('*');
+          .returning("*");
         return {
           ...updatedStudent,
-          id: updatedStudent.studentId
+          id: updatedStudent.studentId,
         };
       }
     }
   } catch (err) {
-    winston.error('Error updating student: ', err);
+    winston.error("Error updating student: ", err);
     return {
-      message: 'Error adding child',
-      status: 'error'
+      message: "Error adding child",
+      status: "error",
     };
   }
 };
 
 const studentSignUp = async (_, args, ctx) => {
-  const {
-    email,
-    firstName,
-    sessionPreference,
-    timePreference,
-    notes,
-    age
-  } = args;
+  const { email, firstName, sessionPreference, timePreference, notes, age } =
+    args;
   winston.info({
     email,
     firstName,
     sessionPreference,
     timePreference,
     notes,
-    age
+    age,
   });
   try {
     await sessionPreference.map(async (session, index) => {
       session &&
-        (await knex('students').insert({
+        (await knex("students").insert({
           email,
           firstName,
           sessionPreference: index + 1,
           timePreference: timePreference[index],
           notes: notes[index],
-          age
+          age,
         }));
     });
 
@@ -179,9 +173,8 @@ const studentSignUp = async (_, args, ctx) => {
       sessionPreference,
       timePreference,
       notes,
-      age
-    }
-    )
+      age,
+    });
 
     await sendSignupEmail({
       email,
@@ -189,45 +182,45 @@ const studentSignUp = async (_, args, ctx) => {
       sessionPreference,
       timePreference,
       notes,
-      age
+      age,
     });
 
     return {
-      message: 'Successfully submitted',
-      status: 'success'
+      message: "Successfully submitted",
+      status: "success",
     };
   } catch (err) {
     winston.error(err);
     return {
-      message: 'Error adding child',
-      status: 'error'
+      message: "Error adding child",
+      status: "error",
     };
   }
 };
 
 const getAllStudents = async (_, args, ctx) => {
   try {
-    let students = await knex('students')
-      .join('parents', { 'parents.email': 'students.email' })
+    let students = await knex("students")
+      .join("parents", { "parents.email": "students.email" })
       .select(
-        'students.studentId',
-        'students.email',
-        'students.age',
-        'students.firstName',
-        'students.sessionPreference',
-        'students.sessionAssigned',
-        'students.timeAssigned',
-        'students.timePreference',
-        'students.emailSent',
-        'students.notes',
-        'parents.firstName as parentFirst',
-        'parents.lastName as parentLast',
-        'parents.phone'
+        "students.studentId",
+        "students.email",
+        "students.age",
+        "students.firstName",
+        "students.sessionPreference",
+        "students.sessionAssigned",
+        "students.timeAssigned",
+        "students.timePreference",
+        "students.emailSent",
+        "students.notes",
+        "parents.firstName as parentFirst",
+        "parents.lastName as parentLast",
+        "parents.phone"
       );
-    students = students.map(student => {
+    students = students.map((student) => {
       return {
         ...student,
-        id: student.studentId
+        id: student.studentId,
       };
     });
     return students;
@@ -239,5 +232,5 @@ const getAllStudents = async (_, args, ctx) => {
 module.exports = {
   studentSignUp,
   getAllStudents,
-  studentUpdate
+  studentUpdate,
 };
