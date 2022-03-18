@@ -1,35 +1,40 @@
-require('dotenv').config();
-const nodemailer = require('nodemailer');
-var htmlToText = require('nodemailer-html-to-text').htmlToText;
-var mg = require('nodemailer-mailgun-transport');
+require("dotenv").config();
+const nodemailer = require("nodemailer");
+var htmlToText = require("nodemailer-html-to-text").htmlToText;
+var mg = require("nodemailer-mailgun-transport");
 
 module.exports = {
-  sendSignupEmail: async ({ email,
+  sendSignupEmail: async ({
+    email,
     firstName,
     sessionPreference,
     timePreference,
     notes,
-    age }) => {
+    age,
+  }) => {
     let sessions = [
-      'April 27 - May 13',
-      'May 18 - June 3',
-      'June 8 - June 24',
-      'June 29 - July 9',
-      'August 17 - August 27',
+      "April 26 - May 19",
+      "June 7 - June 30",
+      "July 12 - July 22",
+      "August 2 - August  18",
     ];
-    let times = ['9:00 AM - 11:30 AM', '11:30 AM - 3:30 PM', '3:30 PM - 5:30 PM'];
+    let times = [
+      "9:00 AM - 11:30 AM",
+      "11:30 AM - 3:30 PM",
+      "3:30 PM - 5:30 PM",
+    ];
     // create reusable transporter object using the default SMTP transport
     let auth = {
       auth: {
         api_key: process.env.MAILGUN_API_KEY,
-        domain: process.env.MAILGUN_DOMAIN
-      }
+        domain: process.env.MAILGUN_DOMAIN,
+      },
     };
 
     var nodemailerMailgun = nodemailer.createTransport(mg(auth));
     // transporter.use('compile', htmlToText());
 
-    console.log(firstName, email, sessionPreference)
+    console.log(firstName, email, sessionPreference);
 
     // setup email data with unicode symbols
     let mailOptions = {
@@ -43,26 +48,25 @@ module.exports = {
                    <div style="width: 500px; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: #55B3B0; color: white; margin-top: 15px; padding: 15px;">
                      
                      <h3> Hello!</h3></div>
-                    <div style="width: 455px;height; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; padding: 15px"><span>Your child <strong>${firstName
-        }</strong> has just been signed up for swim lessons with <strong>Power Road
+                    <div style="width: 455px;height; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; padding: 15px"><span>Your child <strong>${firstName}</strong> has just been signed up for swim lessons with <strong>Power Road
                     Pufferfish Swim Lessons</strong></span><br>
                     <span>Here's what you signed up for:<br><br> 
                       
                       ${sessionPreference.map((signup, index) => {
-          if (!signup) return
-          else {
-            return (
-              '<strong>' +
-              'Session ' +
-              parseInt(index + 1) +
-              '</strong>' +
-              '</strong>' +
-              ' | Time Preference ' +
-              times[timePreference[index] - 1] +
-              '<br/>'
-            )
-          }
-        })}
+                        if (!signup) return;
+                        else {
+                          return (
+                            "<strong>" +
+                            "Session " +
+                            parseInt(index + 1) +
+                            "</strong>" +
+                            "</strong>" +
+                            " | Time Preference " +
+                            times[timePreference[index] - 1] +
+                            "<br/>"
+                          );
+                        }
+                      })}
         
         <br><br>
                     We'll do our best to assign you a class within your preferred time preference. Please allow 2 - 3 weeks for us to process your reservation. You'll be notified once your class time has been assigned!</span><br><br>
