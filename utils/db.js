@@ -1,6 +1,8 @@
 require("dotenv").config();
 const knex = require("knex");
 
+console.log("DB: ", process.env.DATABASE_URL);
+
 module.exports = {
   knex: knex({
     client: "pg",

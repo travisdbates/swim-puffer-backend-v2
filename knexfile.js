@@ -4,7 +4,8 @@ require("dotenv").config();
  * @type { Object.<string, import("knex").Knex.Config> }
  */
 
-console.log(process.env);
+console.log("DB: ", process.env.DATABASE_URL, process.env.ENVIRONMENT);
+
 module.exports = {
   development: {
     client: "pg",

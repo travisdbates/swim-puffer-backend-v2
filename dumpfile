@@ -1,0 +1,4082 @@
+--
+-- PostgreSQL database dump
+--
+
+-- Dumped from database version 14.1
+-- Dumped by pg_dump version 14.1
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Name: auth; Type: SCHEMA; Schema: -; Owner: supabase_admin
+--
+
+CREATE SCHEMA auth;
+
+
+ALTER SCHEMA auth OWNER TO supabase_admin;
+
+--
+-- Name: extensions; Type: SCHEMA; Schema: -; Owner: postgres
+--
+
+CREATE SCHEMA extensions;
+
+
+ALTER SCHEMA extensions OWNER TO postgres;
+
+--
+-- Name: pgbouncer; Type: SCHEMA; Schema: -; Owner: pgbouncer
+--
+
+CREATE SCHEMA pgbouncer;
+
+
+ALTER SCHEMA pgbouncer OWNER TO pgbouncer;
+
+--
+-- Name: realtime; Type: SCHEMA; Schema: -; Owner: supabase_admin
+--
+
+CREATE SCHEMA realtime;
+
+
+ALTER SCHEMA realtime OWNER TO supabase_admin;
+
+--
+-- Name: storage; Type: SCHEMA; Schema: -; Owner: supabase_admin
+--
+
+CREATE SCHEMA storage;
+
+
+ALTER SCHEMA storage OWNER TO supabase_admin;
+
+--
+-- Name: pg_stat_statements; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA extensions;
+
+
+--
+-- Name: EXTENSION pg_stat_statements; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION pg_stat_statements IS 'track planning and execution statistics of all SQL statements executed';
+
+
+--
+-- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+
+
+--
+-- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
+
+
+--
+-- Name: pgjwt; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pgjwt WITH SCHEMA extensions;
+
+
+--
+-- Name: EXTENSION pgjwt; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION pgjwt IS 'JSON Web Token API for Postgresql';
+
+
+--
+-- Name: uuid-ossp; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
+
+
+--
+-- Name: EXTENSION "uuid-ossp"; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UUIDs)';
+
+
+--
+-- Name: action; Type: TYPE; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE TYPE realtime.action AS ENUM (
+    'INSERT',
+    'UPDATE',
+    'DELETE',
+    'TRUNCATE',
+    'ERROR'
+);
+
+
+ALTER TYPE realtime.action OWNER TO supabase_admin;
+
+--
+-- Name: equality_op; Type: TYPE; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE TYPE realtime.equality_op AS ENUM (
+    'eq',
+    'neq',
+    'lt',
+    'lte',
+    'gt',
+    'gte'
+);
+
+
+ALTER TYPE realtime.equality_op OWNER TO supabase_admin;
+
+--
+-- Name: user_defined_filter; Type: TYPE; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE TYPE realtime.user_defined_filter AS (
+	column_name text,
+	op realtime.equality_op,
+	value text
+);
+
+
+ALTER TYPE realtime.user_defined_filter OWNER TO supabase_admin;
+
+--
+-- Name: wal_column; Type: TYPE; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE TYPE realtime.wal_column AS (
+	name text,
+	type text,
+	value jsonb,
+	is_pkey boolean,
+	is_selectable boolean
+);
+
+
+ALTER TYPE realtime.wal_column OWNER TO supabase_admin;
+
+--
+-- Name: wal_rls; Type: TYPE; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE TYPE realtime.wal_rls AS (
+	wal jsonb,
+	is_rls_enabled boolean,
+	subscription_ids uuid[],
+	errors text[]
+);
+
+
+ALTER TYPE realtime.wal_rls OWNER TO supabase_admin;
+
+--
+-- Name: email(); Type: FUNCTION; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE FUNCTION auth.email() RETURNS text
+    LANGUAGE sql STABLE
+    AS $$
+  select 
+  	coalesce(
+		nullif(current_setting('request.jwt.claim.email', true), ''),
+		(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'email')
+	)::text
+$$;
+
+
+ALTER FUNCTION auth.email() OWNER TO supabase_auth_admin;
+
+--
+-- Name: role(); Type: FUNCTION; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE FUNCTION auth.role() RETURNS text
+    LANGUAGE sql STABLE
+    AS $$
+  select 
+  	coalesce(
+		nullif(current_setting('request.jwt.claim.role', true), ''),
+		(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role')
+	)::text
+$$;
+
+
+ALTER FUNCTION auth.role() OWNER TO supabase_auth_admin;
+
+--
+-- Name: uid(); Type: FUNCTION; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE FUNCTION auth.uid() RETURNS uuid
+    LANGUAGE sql STABLE
+    AS $$
+  select 
+  	coalesce(
+		nullif(current_setting('request.jwt.claim.sub', true), ''),
+		(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')
+	)::uuid
+$$;
+
+
+ALTER FUNCTION auth.uid() OWNER TO supabase_auth_admin;
+
+--
+-- Name: grant_pg_cron_access(); Type: FUNCTION; Schema: extensions; Owner: postgres
+--
+
+CREATE FUNCTION extensions.grant_pg_cron_access() RETURNS event_trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  schema_is_cron bool;
+BEGIN
+  schema_is_cron = (
+    SELECT n.nspname = 'cron'
+    FROM pg_event_trigger_ddl_commands() AS ev
+    LEFT JOIN pg_catalog.pg_namespace AS n
+      ON ev.objid = n.oid
+  );
+
+  IF schema_is_cron
+  THEN
+    grant usage on schema cron to postgres with grant option;
+
+    alter default privileges in schema cron grant all on tables to postgres with grant option;
+    alter default privileges in schema cron grant all on functions to postgres with grant option;
+    alter default privileges in schema cron grant all on sequences to postgres with grant option;
+
+    alter default privileges for user supabase_admin in schema cron grant all
+        on sequences to postgres with grant option;
+    alter default privileges for user supabase_admin in schema cron grant all
+        on tables to postgres with grant option;
+    alter default privileges for user supabase_admin in schema cron grant all
+        on functions to postgres with grant option;
+
+    grant all privileges on all tables in schema cron to postgres with grant option; 
+
+  END IF;
+
+END;
+$$;
+
+
+ALTER FUNCTION extensions.grant_pg_cron_access() OWNER TO postgres;
+
+--
+-- Name: FUNCTION grant_pg_cron_access(); Type: COMMENT; Schema: extensions; Owner: postgres
+--
+
+COMMENT ON FUNCTION extensions.grant_pg_cron_access() IS 'Grants access to pg_cron';
+
+
+--
+-- Name: grant_pg_net_access(); Type: FUNCTION; Schema: extensions; Owner: postgres
+--
+
+CREATE FUNCTION extensions.grant_pg_net_access() RETURNS event_trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_event_trigger_ddl_commands() AS ev
+    JOIN pg_extension AS ext
+    ON ev.objid = ext.oid
+    WHERE ext.extname = 'pg_net'
+  )
+  THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_roles
+      WHERE rolname = 'supabase_functions_admin'
+    )
+    THEN
+      CREATE USER supabase_functions_admin NOINHERIT CREATEROLE LOGIN NOREPLICATION;
+    END IF;
+
+    GRANT USAGE ON SCHEMA net TO supabase_functions_admin, postgres, anon, authenticated, service_role;
+
+    ALTER function net.http_get(url text, params jsonb, headers jsonb, timeout_milliseconds integer) SECURITY DEFINER;
+    ALTER function net.http_post(url text, body jsonb, params jsonb, headers jsonb, timeout_milliseconds integer) SECURITY DEFINER;
+    ALTER function net.http_collect_response(request_id bigint, async boolean) SECURITY DEFINER;
+
+    ALTER function net.http_get(url text, params jsonb, headers jsonb, timeout_milliseconds integer) SET search_path = net;
+    ALTER function net.http_post(url text, body jsonb, params jsonb, headers jsonb, timeout_milliseconds integer) SET search_path = net;
+    ALTER function net.http_collect_response(request_id bigint, async boolean) SET search_path = net;
+
+    REVOKE ALL ON FUNCTION net.http_get(url text, params jsonb, headers jsonb, timeout_milliseconds integer) FROM PUBLIC;
+    REVOKE ALL ON FUNCTION net.http_post(url text, body jsonb, params jsonb, headers jsonb, timeout_milliseconds integer) FROM PUBLIC;
+    REVOKE ALL ON FUNCTION net.http_collect_response(request_id bigint, async boolean) FROM PUBLIC;
+
+    GRANT EXECUTE ON FUNCTION net.http_get(url text, params jsonb, headers jsonb, timeout_milliseconds integer) TO supabase_functions_admin, postgres, anon, authenticated, service_role;
+    GRANT EXECUTE ON FUNCTION net.http_post(url text, body jsonb, params jsonb, headers jsonb, timeout_milliseconds integer) TO supabase_functions_admin, postgres, anon, authenticated, service_role;
+    GRANT EXECUTE ON FUNCTION net.http_collect_response(request_id bigint, async boolean) TO supabase_functions_admin, postgres, anon, authenticated, service_role;
+  END IF;
+END;
+$$;
+
+
+ALTER FUNCTION extensions.grant_pg_net_access() OWNER TO postgres;
+
+--
+-- Name: FUNCTION grant_pg_net_access(); Type: COMMENT; Schema: extensions; Owner: postgres
+--
+
+COMMENT ON FUNCTION extensions.grant_pg_net_access() IS 'Grants access to pg_net';
+
+
+--
+-- Name: pgrst_ddl_watch(); Type: FUNCTION; Schema: extensions; Owner: supabase_admin
+--
+
+CREATE FUNCTION extensions.pgrst_ddl_watch() RETURNS event_trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  cmd record;
+BEGIN
+  FOR cmd IN SELECT * FROM pg_event_trigger_ddl_commands()
+  LOOP
+    IF cmd.command_tag IN (
+      'CREATE SCHEMA', 'ALTER SCHEMA'
+    , 'CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO', 'ALTER TABLE'
+    , 'CREATE FOREIGN TABLE', 'ALTER FOREIGN TABLE'
+    , 'CREATE VIEW', 'ALTER VIEW'
+    , 'CREATE MATERIALIZED VIEW', 'ALTER MATERIALIZED VIEW'
+    , 'CREATE FUNCTION', 'ALTER FUNCTION'
+    , 'CREATE TRIGGER'
+    , 'CREATE TYPE', 'ALTER TYPE'
+    , 'CREATE RULE'
+    , 'COMMENT'
+    )
+    -- don't notify in case of CREATE TEMP table or other objects created on pg_temp
+    AND cmd.schema_name is distinct from 'pg_temp'
+    THEN
+      NOTIFY pgrst, 'reload schema';
+    END IF;
+  END LOOP;
+END; $$;
+
+
+ALTER FUNCTION extensions.pgrst_ddl_watch() OWNER TO supabase_admin;
+
+--
+-- Name: pgrst_drop_watch(); Type: FUNCTION; Schema: extensions; Owner: supabase_admin
+--
+
+CREATE FUNCTION extensions.pgrst_drop_watch() RETURNS event_trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  obj record;
+BEGIN
+  FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()
+  LOOP
+    IF obj.object_type IN (
+      'schema'
+    , 'table'
+    , 'foreign table'
+    , 'view'
+    , 'materialized view'
+    , 'function'
+    , 'trigger'
+    , 'type'
+    , 'rule'
+    )
+    AND obj.is_temporary IS false -- no pg_temp objects
+    THEN
+      NOTIFY pgrst, 'reload schema';
+    END IF;
+  END LOOP;
+END; $$;
+
+
+ALTER FUNCTION extensions.pgrst_drop_watch() OWNER TO supabase_admin;
+
+--
+-- Name: get_auth(text); Type: FUNCTION; Schema: pgbouncer; Owner: postgres
+--
+
+CREATE FUNCTION pgbouncer.get_auth(p_usename text) RETURNS TABLE(username text, password text)
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+BEGIN
+    RAISE WARNING 'PgBouncer auth request: %', p_usename;
+
+    RETURN QUERY
+    SELECT usename::TEXT, passwd::TEXT FROM pg_catalog.pg_shadow
+    WHERE usename = p_usename;
+END;
+$$;
+
+
+ALTER FUNCTION pgbouncer.get_auth(p_usename text) OWNER TO postgres;
+
+--
+-- Name: apply_rls(jsonb, integer); Type: FUNCTION; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE FUNCTION realtime.apply_rls(wal jsonb, max_record_bytes integer DEFAULT (1024 * 1024)) RETURNS SETOF realtime.wal_rls
+    LANGUAGE plpgsql
+    AS $$
+      declare
+        -- Regclass of the table e.g. public.notes
+        entity_ regclass = (quote_ident(wal ->> 'schema') || '.' || quote_ident(wal ->> 'table'))::regclass;
+
+        -- I, U, D, T: insert, update ...
+        action realtime.action = (
+          case wal ->> 'action'
+            when 'I' then 'INSERT'
+            when 'U' then 'UPDATE'
+            when 'D' then 'DELETE'
+            else 'ERROR'
+          end
+        );
+
+        -- Is row level security enabled for the table
+        is_rls_enabled bool = relrowsecurity from pg_class where oid = entity_;
+
+        subscriptions realtime.subscription[] = array_agg(subs)
+          from
+            realtime.subscription subs
+          where
+            subs.entity = entity_;
+
+        -- Subscription vars
+        roles regrole[] = array_agg(distinct us.claims_role)
+          from
+            unnest(subscriptions) us;
+
+        working_role regrole;
+        claimed_role regrole;
+        claims jsonb;
+
+        subscription_id uuid;
+        subscription_has_access bool;
+        visible_to_subscription_ids uuid[] = '{}';
+
+        -- structured info for wal's columns
+        columns realtime.wal_column[];
+        -- previous identity values for update/delete
+        old_columns realtime.wal_column[];
+
+        error_record_exceeds_max_size boolean = octet_length(wal::text) > max_record_bytes;
+
+        -- Primary jsonb output for record
+        output jsonb;
+
+      begin
+        perform set_config('role', null, true);
+
+        columns =
+          array_agg(
+            (
+              x->>'name',
+              x->>'type',
+              realtime.cast((x->'value') #>> '{}', (x->>'type')::regtype),
+              (pks ->> 'name') is not null,
+              true
+            )::realtime.wal_column
+          )
+          from
+            jsonb_array_elements(wal -> 'columns') x
+            left join jsonb_array_elements(wal -> 'pk') pks
+              on (x ->> 'name') = (pks ->> 'name');
+
+        old_columns =
+          array_agg(
+            (
+              x->>'name',
+              x->>'type',
+              realtime.cast((x->'value') #>> '{}', (x->>'type')::regtype),
+              (pks ->> 'name') is not null,
+              true
+            )::realtime.wal_column
+          )
+          from
+            jsonb_array_elements(wal -> 'identity') x
+            left join jsonb_array_elements(wal -> 'pk') pks
+              on (x ->> 'name') = (pks ->> 'name');
+
+        for working_role in select * from unnest(roles) loop
+
+          -- Update `is_selectable` for columns and old_columns
+          columns =
+            array_agg(
+              (
+                c.name,
+                c.type,
+                c.value,
+                c.is_pkey,
+                pg_catalog.has_column_privilege(working_role, entity_, c.name, 'SELECT')
+              )::realtime.wal_column
+            )
+            from
+              unnest(columns) c;
+
+          old_columns =
+            array_agg(
+              (
+                c.name,
+                c.type,
+                c.value,
+                c.is_pkey,
+                pg_catalog.has_column_privilege(working_role, entity_, c.name, 'SELECT')
+              )::realtime.wal_column
+            )
+            from
+              unnest(old_columns) c;
+
+          if action <> 'DELETE' and count(1) = 0 from unnest(columns) c where c.is_pkey then
+            return next (
+              null,
+              is_rls_enabled,
+              -- subscriptions is already filtered by entity
+              (select array_agg(s.subscription_id) from unnest(subscriptions) as s where claims_role = working_role),
+              array['Error 400: Bad Request, no primary key']
+            )::realtime.wal_rls;
+
+          -- The claims role does not have SELECT permission to the primary key of entity
+          elsif action <> 'DELETE' and sum(c.is_selectable::int) <> count(1) from unnest(columns) c where c.is_pkey then
+            return next (
+              null,
+              is_rls_enabled,
+              (select array_agg(s.subscription_id) from unnest(subscriptions) as s where claims_role = working_role),
+              array['Error 401: Unauthorized']
+            )::realtime.wal_rls;
+
+          else
+            output = jsonb_build_object(
+              'schema', wal ->> 'schema',
+              'table', wal ->> 'table',
+              'type', action,
+              'commit_timestamp', to_char(
+                (wal ->> 'timestamp')::timestamptz,
+                'YYYY-MM-DD"T"HH24:MI:SS"Z"'
+              ),
+              'columns', (
+                select
+                  jsonb_agg(
+                    jsonb_build_object(
+                      'name', pa.attname,
+                      'type', pt.typname
+                    )
+                    order by pa.attnum asc
+                  )
+                    from
+                      pg_attribute pa
+                      join pg_type pt
+                        on pa.atttypid = pt.oid
+                    where
+                      attrelid = entity_
+                      and attnum > 0
+                      and pg_catalog.has_column_privilege(working_role, entity_, pa.attname, 'SELECT')
+              )
+            )
+            -- Add "record" key for insert and update
+            || case
+                when error_record_exceeds_max_size then jsonb_build_object('record', '{}'::jsonb)
+                when action in ('INSERT', 'UPDATE') then
+                  jsonb_build_object(
+                    'record',
+                    (select jsonb_object_agg((c).name, (c).value) from unnest(columns) c where (c).is_selectable)
+                  )
+                else '{}'::jsonb
+            end
+            -- Add "old_record" key for update and delete
+            || case
+                when error_record_exceeds_max_size then jsonb_build_object('old_record', '{}'::jsonb)
+                when action in ('UPDATE', 'DELETE') then
+                  jsonb_build_object(
+                    'old_record',
+                    (select jsonb_object_agg((c).name, (c).value) from unnest(old_columns) c where (c).is_selectable)
+                  )
+                else '{}'::jsonb
+            end;
+
+            -- Create the prepared statement
+            if is_rls_enabled and action <> 'DELETE' then
+              if (select 1 from pg_prepared_statements where name = 'walrus_rls_stmt' limit 1) > 0 then
+                deallocate walrus_rls_stmt;
+              end if;
+              execute realtime.build_prepared_statement_sql('walrus_rls_stmt', entity_, columns);
+            end if;
+
+            visible_to_subscription_ids = '{}';
+
+            for subscription_id, claims in (
+                select
+                  subs.subscription_id,
+                  subs.claims
+                from
+                  unnest(subscriptions) subs
+                where
+                  subs.entity = entity_
+                  and subs.claims_role = working_role
+                  and realtime.is_visible_through_filters(columns, subs.filters)
+              ) loop
+
+              if not is_rls_enabled or action = 'DELETE' then
+                visible_to_subscription_ids = visible_to_subscription_ids || subscription_id;
+              else
+                -- Check if RLS allows the role to see the record
+                perform
+                  set_config('role', working_role::text, true),
+                  set_config('request.jwt.claims', claims::text, true);
+
+                execute 'execute walrus_rls_stmt' into subscription_has_access;
+
+                if subscription_has_access then
+                  visible_to_subscription_ids = visible_to_subscription_ids || subscription_id;
+                end if;
+              end if;
+            end loop;
+
+            perform set_config('role', null, true);
+
+            return next (
+              output,
+              is_rls_enabled,
+              visible_to_subscription_ids,
+              case
+                when error_record_exceeds_max_size then array['Error 413: Payload Too Large']
+                else '{}'
+              end
+            )::realtime.wal_rls;
+
+          end if;
+        end loop;
+
+        perform set_config('role', null, true);
+      end;
+      $$;
+
+
+ALTER FUNCTION realtime.apply_rls(wal jsonb, max_record_bytes integer) OWNER TO supabase_admin;
+
+--
+-- Name: build_prepared_statement_sql(text, regclass, realtime.wal_column[]); Type: FUNCTION; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE FUNCTION realtime.build_prepared_statement_sql(prepared_statement_name text, entity regclass, columns realtime.wal_column[]) RETURNS text
+    LANGUAGE sql
+    AS $$
+    /*
+    Builds a sql string that, if executed, creates a prepared statement to
+    tests retrive a row from *entity* by its primary key columns.
+
+    Example
+      select realtime.build_prepared_statment_sql('public.notes', '{"id"}'::text[], '{"bigint"}'::text[])
+    */
+      select
+    'prepare ' || prepared_statement_name || ' as
+      select
+        exists(
+          select
+            1
+          from
+            ' || entity || '
+          where
+            ' || string_agg(quote_ident(pkc.name) || '=' || quote_nullable(pkc.value #>> '{}') , ' and ') || '
+        )'
+      from
+        unnest(columns) pkc
+      where
+        pkc.is_pkey
+      group by
+        entity
+    $$;
+
+
+ALTER FUNCTION realtime.build_prepared_statement_sql(prepared_statement_name text, entity regclass, columns realtime.wal_column[]) OWNER TO supabase_admin;
+
+--
+-- Name: cast(text, regtype); Type: FUNCTION; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE FUNCTION realtime."cast"(val text, type_ regtype) RETURNS jsonb
+    LANGUAGE plpgsql IMMUTABLE
+    AS $$
+    declare
+      res jsonb;
+    begin
+      execute format('select to_jsonb(%L::'|| type_::text || ')', val)  into res;
+      return res;
+    end
+    $$;
+
+
+ALTER FUNCTION realtime."cast"(val text, type_ regtype) OWNER TO supabase_admin;
+
+--
+-- Name: check_equality_op(realtime.equality_op, regtype, text, text); Type: FUNCTION; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE FUNCTION realtime.check_equality_op(op realtime.equality_op, type_ regtype, val_1 text, val_2 text) RETURNS boolean
+    LANGUAGE plpgsql IMMUTABLE
+    AS $$
+    /*
+    Casts *val_1* and *val_2* as type *type_* and check the *op* condition for truthiness
+    */
+    declare
+      op_symbol text = (
+        case
+          when op = 'eq' then '='
+          when op = 'neq' then '!='
+          when op = 'lt' then '<'
+          when op = 'lte' then '<='
+          when op = 'gt' then '>'
+          when op = 'gte' then '>='
+          else 'UNKNOWN OP'
+        end
+      );
+      res boolean;
+    begin
+      execute format('select %L::'|| type_::text || ' ' || op_symbol || ' %L::'|| type_::text, val_1, val_2) into res;
+      return res;
+    end;
+    $$;
+
+
+ALTER FUNCTION realtime.check_equality_op(op realtime.equality_op, type_ regtype, val_1 text, val_2 text) OWNER TO supabase_admin;
+
+--
+-- Name: is_visible_through_filters(realtime.wal_column[], realtime.user_defined_filter[]); Type: FUNCTION; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE FUNCTION realtime.is_visible_through_filters(columns realtime.wal_column[], filters realtime.user_defined_filter[]) RETURNS boolean
+    LANGUAGE sql IMMUTABLE
+    AS $$
+    /*
+    Should the record be visible (true) or filtered out (false) after *filters* are applied
+    */
+    select
+      -- Default to allowed when no filters present
+      coalesce(
+        sum(
+          realtime.check_equality_op(
+            op:=f.op,
+            type_:=col.type::regtype,
+            -- cast jsonb to text
+            val_1:=col.value #>> '{}',
+            val_2:=f.value
+          )::int
+        ) = count(1),
+        true
+      )
+    from
+      unnest(filters) f
+      join unnest(columns) col
+          on f.column_name = col.name;
+    $$;
+
+
+ALTER FUNCTION realtime.is_visible_through_filters(columns realtime.wal_column[], filters realtime.user_defined_filter[]) OWNER TO supabase_admin;
+
+--
+-- Name: quote_wal2json(regclass); Type: FUNCTION; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE FUNCTION realtime.quote_wal2json(entity regclass) RETURNS text
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $$
+      select
+        (
+          select string_agg('' || ch,'')
+          from unnest(string_to_array(nsp.nspname::text, null)) with ordinality x(ch, idx)
+          where
+            not (x.idx = 1 and x.ch = '"')
+            and not (
+              x.idx = array_length(string_to_array(nsp.nspname::text, null), 1)
+              and x.ch = '"'
+            )
+        )
+        || '.'
+        || (
+          select string_agg('' || ch,'')
+          from unnest(string_to_array(pc.relname::text, null)) with ordinality x(ch, idx)
+          where
+            not (x.idx = 1 and x.ch = '"')
+            and not (
+              x.idx = array_length(string_to_array(nsp.nspname::text, null), 1)
+              and x.ch = '"'
+            )
+          )
+      from
+        pg_class pc
+        join pg_namespace nsp
+          on pc.relnamespace = nsp.oid
+      where
+        pc.oid = entity
+    $$;
+
+
+ALTER FUNCTION realtime.quote_wal2json(entity regclass) OWNER TO supabase_admin;
+
+--
+-- Name: subscription_check_filters(); Type: FUNCTION; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE FUNCTION realtime.subscription_check_filters() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    /*
+    Validates that the user defined filters for a subscription:
+    - refer to valid columns that the claimed role may access
+    - values are coercable to the correct column type
+    */
+    declare
+      col_names text[] = coalesce(
+        array_agg(c.column_name order by c.ordinal_position),
+        '{}'::text[]
+      )
+      from
+        information_schema.columns c
+      where
+        format('%I.%I', c.table_schema, c.table_name)::regclass = new.entity
+        and pg_catalog.has_column_privilege(
+          (new.claims ->> 'role'),
+          format('%I.%I', c.table_schema, c.table_name)::regclass,
+          c.column_name,
+          'SELECT'
+        );
+      filter realtime.user_defined_filter;
+      col_type regtype;
+    begin
+      for filter in select * from unnest(new.filters) loop
+        -- Filtered column is valid
+        if not filter.column_name = any(col_names) then
+          raise exception 'invalid column for filter %', filter.column_name;
+        end if;
+
+        -- Type is sanitized and safe for string interpolation
+        col_type = (
+          select atttypid::regtype
+          from pg_catalog.pg_attribute
+          where attrelid = new.entity
+            and attname = filter.column_name
+        );
+        if col_type is null then
+          raise exception 'failed to lookup type for column %', filter.column_name;
+        end if;
+        -- raises an exception if value is not coercable to type
+        perform realtime.cast(filter.value, col_type);
+      end loop;
+
+      -- Apply consistent order to filters so the unique constraint on
+      -- (subscription_id, entity, filters) can't be tricked by a different filter order
+      new.filters = coalesce(
+        array_agg(f order by f.column_name, f.op, f.value),
+        '{}'
+      ) from unnest(new.filters) f;
+
+    return new;
+  end;
+  $$;
+
+
+ALTER FUNCTION realtime.subscription_check_filters() OWNER TO supabase_admin;
+
+--
+-- Name: to_regrole(text); Type: FUNCTION; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE FUNCTION realtime.to_regrole(role_name text) RETURNS regrole
+    LANGUAGE sql IMMUTABLE
+    AS $$ select role_name::regrole $$;
+
+
+ALTER FUNCTION realtime.to_regrole(role_name text) OWNER TO supabase_admin;
+
+--
+-- Name: extension(text); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.extension(name text) RETURNS text
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+_parts text[];
+_filename text;
+BEGIN
+	select string_to_array(name, '/') into _parts;
+	select _parts[array_length(_parts,1)] into _filename;
+	-- @todo return the last part instead of 2
+	return split_part(_filename, '.', 2);
+END
+$$;
+
+
+ALTER FUNCTION storage.extension(name text) OWNER TO supabase_storage_admin;
+
+--
+-- Name: filename(text); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.filename(name text) RETURNS text
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+_parts text[];
+BEGIN
+	select string_to_array(name, '/') into _parts;
+	return _parts[array_length(_parts,1)];
+END
+$$;
+
+
+ALTER FUNCTION storage.filename(name text) OWNER TO supabase_storage_admin;
+
+--
+-- Name: foldername(text); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.foldername(name text) RETURNS text[]
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+_parts text[];
+BEGIN
+	select string_to_array(name, '/') into _parts;
+	return _parts[1:array_length(_parts,1)-1];
+END
+$$;
+
+
+ALTER FUNCTION storage.foldername(name text) OWNER TO supabase_storage_admin;
+
+--
+-- Name: get_size_by_bucket(); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.get_size_by_bucket() RETURNS TABLE(size bigint, bucket_id text)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    return query
+        select sum((metadata->>'size')::int) as size, obj.bucket_id
+        from "storage".objects as obj
+        group by obj.bucket_id;
+END
+$$;
+
+
+ALTER FUNCTION storage.get_size_by_bucket() OWNER TO supabase_storage_admin;
+
+--
+-- Name: search(text, text, integer, integer, integer); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.search(prefix text, bucketname text, limits integer DEFAULT 100, levels integer DEFAULT 1, offsets integer DEFAULT 0) RETURNS TABLE(name text, id uuid, updated_at timestamp with time zone, created_at timestamp with time zone, last_accessed_at timestamp with time zone, metadata jsonb)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+	return query 
+		with files_folders as (
+			select path_tokens[levels] as folder
+			from storage.objects
+			where objects.name ilike prefix || '%'
+			and bucket_id = bucketname
+			GROUP by folder
+			limit limits
+			offset offsets
+		) 
+		select files_folders.folder as name, objects.id, objects.updated_at, objects.created_at, objects.last_accessed_at, objects.metadata from files_folders 
+		left join storage.objects
+		on prefix || files_folders.folder = objects.name and objects.bucket_id=bucketname;
+END
+$$;
+
+
+ALTER FUNCTION storage.search(prefix text, bucketname text, limits integer, levels integer, offsets integer) OWNER TO supabase_storage_admin;
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: audit_log_entries; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TABLE auth.audit_log_entries (
+    instance_id uuid,
+    id uuid NOT NULL,
+    payload json,
+    created_at timestamp with time zone
+);
+
+
+ALTER TABLE auth.audit_log_entries OWNER TO supabase_auth_admin;
+
+--
+-- Name: TABLE audit_log_entries; Type: COMMENT; Schema: auth; Owner: supabase_auth_admin
+--
+
+COMMENT ON TABLE auth.audit_log_entries IS 'Auth: Audit trail for user actions.';
+
+
+--
+-- Name: identities; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TABLE auth.identities (
+    id text NOT NULL,
+    user_id uuid NOT NULL,
+    identity_data jsonb NOT NULL,
+    provider text NOT NULL,
+    last_sign_in_at timestamp with time zone,
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone
+);
+
+
+ALTER TABLE auth.identities OWNER TO supabase_auth_admin;
+
+--
+-- Name: TABLE identities; Type: COMMENT; Schema: auth; Owner: supabase_auth_admin
+--
+
+COMMENT ON TABLE auth.identities IS 'Auth: Stores identities associated to a user.';
+
+
+--
+-- Name: instances; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TABLE auth.instances (
+    id uuid NOT NULL,
+    uuid uuid,
+    raw_base_config text,
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone
+);
+
+
+ALTER TABLE auth.instances OWNER TO supabase_auth_admin;
+
+--
+-- Name: TABLE instances; Type: COMMENT; Schema: auth; Owner: supabase_auth_admin
+--
+
+COMMENT ON TABLE auth.instances IS 'Auth: Manages users across multiple sites.';
+
+
+--
+-- Name: refresh_tokens; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TABLE auth.refresh_tokens (
+    instance_id uuid,
+    id bigint NOT NULL,
+    token character varying(255),
+    user_id character varying(255),
+    revoked boolean,
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone,
+    parent character varying(255)
+);
+
+
+ALTER TABLE auth.refresh_tokens OWNER TO supabase_auth_admin;
+
+--
+-- Name: TABLE refresh_tokens; Type: COMMENT; Schema: auth; Owner: supabase_auth_admin
+--
+
+COMMENT ON TABLE auth.refresh_tokens IS 'Auth: Store of tokens used to refresh JWT tokens once they expire.';
+
+
+--
+-- Name: refresh_tokens_id_seq; Type: SEQUENCE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE SEQUENCE auth.refresh_tokens_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE auth.refresh_tokens_id_seq OWNER TO supabase_auth_admin;
+
+--
+-- Name: refresh_tokens_id_seq; Type: SEQUENCE OWNED BY; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER SEQUENCE auth.refresh_tokens_id_seq OWNED BY auth.refresh_tokens.id;
+
+
+--
+-- Name: schema_migrations; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TABLE auth.schema_migrations (
+    version character varying(255) NOT NULL
+);
+
+
+ALTER TABLE auth.schema_migrations OWNER TO supabase_auth_admin;
+
+--
+-- Name: TABLE schema_migrations; Type: COMMENT; Schema: auth; Owner: supabase_auth_admin
+--
+
+COMMENT ON TABLE auth.schema_migrations IS 'Auth: Manages updates to the auth system.';
+
+
+--
+-- Name: users; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TABLE auth.users (
+    instance_id uuid,
+    id uuid NOT NULL,
+    aud character varying(255),
+    role character varying(255),
+    email character varying(255),
+    encrypted_password character varying(255),
+    email_confirmed_at timestamp with time zone,
+    invited_at timestamp with time zone,
+    confirmation_token character varying(255),
+    confirmation_sent_at timestamp with time zone,
+    recovery_token character varying(255),
+    recovery_sent_at timestamp with time zone,
+    email_change_token_new character varying(255),
+    email_change character varying(255),
+    email_change_sent_at timestamp with time zone,
+    last_sign_in_at timestamp with time zone,
+    raw_app_meta_data jsonb,
+    raw_user_meta_data jsonb,
+    is_super_admin boolean,
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone,
+    phone character varying(15) DEFAULT NULL::character varying,
+    phone_confirmed_at timestamp with time zone,
+    phone_change character varying(15) DEFAULT ''::character varying,
+    phone_change_token character varying(255) DEFAULT ''::character varying,
+    phone_change_sent_at timestamp with time zone,
+    confirmed_at timestamp with time zone GENERATED ALWAYS AS (LEAST(email_confirmed_at, phone_confirmed_at)) STORED,
+    email_change_token_current character varying(255) DEFAULT ''::character varying,
+    email_change_confirm_status smallint DEFAULT 0,
+    banned_until timestamp with time zone,
+    reauthentication_token character varying(255) DEFAULT ''::character varying,
+    reauthentication_sent_at timestamp with time zone,
+    CONSTRAINT users_email_change_confirm_status_check CHECK (((email_change_confirm_status >= 0) AND (email_change_confirm_status <= 2)))
+);
+
+
+ALTER TABLE auth.users OWNER TO supabase_auth_admin;
+
+--
+-- Name: TABLE users; Type: COMMENT; Schema: auth; Owner: supabase_auth_admin
+--
+
+COMMENT ON TABLE auth.users IS 'Auth: Stores user login data within a secure schema.';
+
+
+--
+-- Name: knex_migrations; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.knex_migrations (
+    id integer NOT NULL,
+    name character varying(255),
+    batch integer,
+    migration_time timestamp with time zone
+);
+
+
+ALTER TABLE public.knex_migrations OWNER TO postgres;
+
+--
+-- Name: knex_migrations_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.knex_migrations_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.knex_migrations_id_seq OWNER TO postgres;
+
+--
+-- Name: knex_migrations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.knex_migrations_id_seq OWNED BY public.knex_migrations.id;
+
+
+--
+-- Name: knex_migrations_lock; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.knex_migrations_lock (
+    index integer NOT NULL,
+    is_locked integer
+);
+
+
+ALTER TABLE public.knex_migrations_lock OWNER TO postgres;
+
+--
+-- Name: knex_migrations_lock_index_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.knex_migrations_lock_index_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.knex_migrations_lock_index_seq OWNER TO postgres;
+
+--
+-- Name: knex_migrations_lock_index_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.knex_migrations_lock_index_seq OWNED BY public.knex_migrations_lock.index;
+
+
+--
+-- Name: parents; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.parents (
+    "parentId" integer NOT NULL,
+    email character varying(255) NOT NULL,
+    "firstName" character varying(255),
+    "lastName" character varying(255),
+    "fullName" character varying(255),
+    phone character varying(255),
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone,
+    admin boolean DEFAULT false
+);
+
+
+ALTER TABLE public.parents OWNER TO postgres;
+
+--
+-- Name: parents_parentId_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public."parents_parentId_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public."parents_parentId_seq" OWNER TO postgres;
+
+--
+-- Name: parents_parentId_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public."parents_parentId_seq" OWNED BY public.parents."parentId";
+
+
+--
+-- Name: sessions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.sessions (
+    "sessionId" integer NOT NULL,
+    "sessionNumber" integer,
+    "sessionCost" integer,
+    "startDate" timestamp with time zone,
+    "endDate" timestamp with time zone,
+    active boolean
+);
+
+
+ALTER TABLE public.sessions OWNER TO postgres;
+
+--
+-- Name: sessions_sessionId_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public."sessions_sessionId_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public."sessions_sessionId_seq" OWNER TO postgres;
+
+--
+-- Name: sessions_sessionId_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public."sessions_sessionId_seq" OWNED BY public.sessions."sessionId";
+
+
+--
+-- Name: students; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.students (
+    "studentId" integer NOT NULL,
+    email character varying(255) NOT NULL,
+    "firstName" character varying(255),
+    "lastName" character varying(255),
+    "fullName" character varying(255),
+    "sessionPreference" integer,
+    "sessionAssigned" integer,
+    notes character varying(255),
+    "timePreference" integer,
+    "timeAssigned" integer,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone,
+    age integer,
+    "emailSent" boolean DEFAULT false
+);
+
+
+ALTER TABLE public.students OWNER TO postgres;
+
+--
+-- Name: students_studentId_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public."students_studentId_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public."students_studentId_seq" OWNER TO postgres;
+
+--
+-- Name: students_studentId_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public."students_studentId_seq" OWNED BY public.students."studentId";
+
+
+--
+-- Name: schema_migrations; Type: TABLE; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE TABLE realtime.schema_migrations (
+    version bigint NOT NULL,
+    inserted_at timestamp(0) without time zone
+);
+
+
+ALTER TABLE realtime.schema_migrations OWNER TO supabase_admin;
+
+--
+-- Name: subscription; Type: TABLE; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE TABLE realtime.subscription (
+    id bigint NOT NULL,
+    subscription_id uuid NOT NULL,
+    entity regclass NOT NULL,
+    filters realtime.user_defined_filter[] DEFAULT '{}'::realtime.user_defined_filter[] NOT NULL,
+    claims jsonb NOT NULL,
+    claims_role regrole GENERATED ALWAYS AS (realtime.to_regrole((claims ->> 'role'::text))) STORED NOT NULL,
+    created_at timestamp without time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+ALTER TABLE realtime.subscription OWNER TO supabase_admin;
+
+--
+-- Name: subscription_id_seq; Type: SEQUENCE; Schema: realtime; Owner: supabase_admin
+--
+
+ALTER TABLE realtime.subscription ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME realtime.subscription_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: buckets; Type: TABLE; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE TABLE storage.buckets (
+    id text NOT NULL,
+    name text NOT NULL,
+    owner uuid,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    public boolean DEFAULT false
+);
+
+
+ALTER TABLE storage.buckets OWNER TO supabase_storage_admin;
+
+--
+-- Name: migrations; Type: TABLE; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE TABLE storage.migrations (
+    id integer NOT NULL,
+    name character varying(100) NOT NULL,
+    hash character varying(40) NOT NULL,
+    executed_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+ALTER TABLE storage.migrations OWNER TO supabase_storage_admin;
+
+--
+-- Name: objects; Type: TABLE; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE TABLE storage.objects (
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
+    bucket_id text,
+    name text,
+    owner uuid,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    last_accessed_at timestamp with time zone DEFAULT now(),
+    metadata jsonb,
+    path_tokens text[] GENERATED ALWAYS AS (string_to_array(name, '/'::text)) STORED
+);
+
+
+ALTER TABLE storage.objects OWNER TO supabase_storage_admin;
+
+--
+-- Name: refresh_tokens id; Type: DEFAULT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.refresh_tokens ALTER COLUMN id SET DEFAULT nextval('auth.refresh_tokens_id_seq'::regclass);
+
+
+--
+-- Name: knex_migrations id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.knex_migrations ALTER COLUMN id SET DEFAULT nextval('public.knex_migrations_id_seq'::regclass);
+
+
+--
+-- Name: knex_migrations_lock index; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.knex_migrations_lock ALTER COLUMN index SET DEFAULT nextval('public.knex_migrations_lock_index_seq'::regclass);
+
+
+--
+-- Name: parents parentId; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.parents ALTER COLUMN "parentId" SET DEFAULT nextval('public."parents_parentId_seq"'::regclass);
+
+
+--
+-- Name: sessions sessionId; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.sessions ALTER COLUMN "sessionId" SET DEFAULT nextval('public."sessions_sessionId_seq"'::regclass);
+
+
+--
+-- Name: students studentId; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.students ALTER COLUMN "studentId" SET DEFAULT nextval('public."students_studentId_seq"'::regclass);
+
+
+--
+-- Data for Name: audit_log_entries; Type: TABLE DATA; Schema: auth; Owner: supabase_auth_admin
+--
+
+COPY auth.audit_log_entries (instance_id, id, payload, created_at) FROM stdin;
+\.
+
+
+--
+-- Data for Name: identities; Type: TABLE DATA; Schema: auth; Owner: supabase_auth_admin
+--
+
+COPY auth.identities (id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at) FROM stdin;
+\.
+
+
+--
+-- Data for Name: instances; Type: TABLE DATA; Schema: auth; Owner: supabase_auth_admin
+--
+
+COPY auth.instances (id, uuid, raw_base_config, created_at, updated_at) FROM stdin;
+\.
+
+
+--
+-- Data for Name: refresh_tokens; Type: TABLE DATA; Schema: auth; Owner: supabase_auth_admin
+--
+
+COPY auth.refresh_tokens (instance_id, id, token, user_id, revoked, created_at, updated_at, parent) FROM stdin;
+\.
+
+
+--
+-- Data for Name: schema_migrations; Type: TABLE DATA; Schema: auth; Owner: supabase_auth_admin
+--
+
+COPY auth.schema_migrations (version) FROM stdin;
+20171026211738
+20171026211808
+20171026211834
+20180103212743
+20180108183307
+20180119214651
+20180125194653
+00
+20210710035447
+20210722035447
+20210730183235
+20210909172000
+20210927181326
+20211122151130
+20211124214934
+20211202183645
+20220114185221
+20220114185340
+20220224000811
+20220323170000
+\.
+
+
+--
+-- Data for Name: users; Type: TABLE DATA; Schema: auth; Owner: supabase_auth_admin
+--
+
+COPY auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, invited_at, confirmation_token, confirmation_sent_at, recovery_token, recovery_sent_at, email_change_token_new, email_change, email_change_sent_at, last_sign_in_at, raw_app_meta_data, raw_user_meta_data, is_super_admin, created_at, updated_at, phone, phone_confirmed_at, phone_change, phone_change_token, phone_change_sent_at, email_change_token_current, email_change_confirm_status, banned_until, reauthentication_token, reauthentication_sent_at) FROM stdin;
+\.
+
+
+--
+-- Data for Name: knex_migrations; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.knex_migrations (id, name, batch, migration_time) FROM stdin;
+1	20190224190444_swim-seed.js	1	2022-03-05 23:43:53.608+00
+\.
+
+
+--
+-- Data for Name: knex_migrations_lock; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.knex_migrations_lock (index, is_locked) FROM stdin;
+1	0
+\.
+
+
+--
+-- Data for Name: parents; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.parents ("parentId", email, "firstName", "lastName", "fullName", phone, created_at, updated_at, admin) FROM stdin;
+3	allen.katieh@gmail.com	Katie	Allen	\N	4805283506	2019-03-07 11:09:35.33106+00	\N	f
+5	morganroberts3@gmail.com	Morgan	Croswhite	\N	6024631475	2019-03-07 17:21:48.540112+00	\N	f
+6	travdbates@gmail.com	Travis	Bates	\N	8013681998	2019-03-07 17:55:48.733962+00	\N	f
+7	alisonbrown33@hotmail.com	Alison	Brown	\N	6023326196	2019-03-07 19:01:36.576983+00	\N	f
+8	mettababe@yahoo.com	Maretta	Cannon	\N	4128071435	2019-03-07 19:07:14.310887+00	\N	f
+9	madifitz7@gmail.com	Madisyn 	Fitzgerald 	\N	4806952701	2019-03-07 19:09:50.389697+00	\N	f
+10	annielizz30@hotmail.com	Anne	Taylor	\N	4803614476	2019-03-07 19:13:04.566933+00	\N	f
+11	lmandrsn12@gmail.com	Lindsay	Farwick	\N	480-540-5201	2019-03-07 19:16:41.169825+00	\N	f
+12	courtneysaager@gmail.com	Courtney	Saager	\N	8013615848	2019-03-07 19:17:38.784032+00	\N	f
+13	alipatch2093@gmail.com	Ali	Bair	\N	8016439842	2019-03-07 19:18:14.998543+00	\N	f
+14	cmarini_7@hotmail.com	Christie	Marini	\N	8019702019	2019-03-07 19:18:19.032544+00	\N	f
+15	christinalauren@gmail.com	Christina	Skousen	\N	5167241760	2019-03-07 19:19:07.656465+00	\N	f
+16	sjson1230@yahoo.com	Symone	Deloney	\N	4802023667	2019-03-07 19:22:00.132132+00	\N	f
+17	megnuttall11@gmail.com	Megan	Nuttall	\N	4803539134	2019-03-07 19:23:14.644105+00	\N	f
+18	cook5971@gmail.com	Ariel	Cascio	\N	4803585487	2019-03-07 19:25:09.935218+00	\N	f
+19	j.livingston0903@gmail.com	Jayden	Livingston	\N	4808182998	2019-03-07 19:25:27.690452+00	\N	f
+20	kristinworkman@outlook.com	Kristin	Workman	\N	4803208840	2019-03-07 19:26:55.392372+00	\N	f
+21	cowart.jade@gmail.com	Jade	Cowart	\N	4803904983	2019-03-07 19:27:50.434528+00	\N	f
+22	mandyw03@gmail.com	Mandy	Woodman	\N	8013182319	2019-03-07 19:28:09.096725+00	\N	f
+23	de888@yahoo.com	DeAnna	Pearce	\N	4802329442	2019-03-07 19:28:36.539489+00	\N	f
+24	mbjurgy@gmail.com	Marianne	Jurgensmeier	\N	5712013283	2019-03-07 19:29:20.903682+00	\N	f
+25	jenniferm.rossell@gmail.com	Jennifer	Rossell	\N	4808894188	2019-03-07 19:33:13.469656+00	\N	f
+26	karen.m@cox.net	karen	mollenhauer	\N	6026908848	2019-03-07 19:34:02.005476+00	\N	f
+27	marc_and_ingrid@yahoo.com	Ingrid	Ahlstrom	\N	602-793-9590	2019-03-07 19:34:32.803867+00	\N	f
+28	britt.cooley87@gmail.com	Brittany 	Tils	\N	4808886494	2019-03-07 19:36:19.944587+00	\N	f
+29	azhills@gmail.com	Alyse	Hill	\N	4802130493	2019-03-07 19:38:02.917338+00	\N	f
+30	kelseajones721@gmail.com	Kelsea 	Jones 	\N	4802966708	2019-03-07 19:38:19.334028+00	\N	f
+31	lildonai@gmail.com	Cassidy	Mantle	\N	4802996436	2019-03-07 19:39:29.786675+00	\N	f
+32	therollenders@hotmail.com	Holly	Rollender	\N	4808266395	2019-03-07 19:41:54.238662+00	\N	f
+33	tacomish@mac.com	Trisha	Comish	\N	9287923036	2019-03-07 19:42:43.79421+00	\N	f
+34	nutterwife@gmail.com	Kristen	Nutter	\N	7192377467	2019-03-07 19:43:13.037972+00	\N	f
+35	emmaliving@gmail.com	Emma	Darner	\N	4802849618	2019-03-07 19:54:24.762806+00	\N	f
+36	norabrady@gmail.com	nora	brady	\N	7025812819	2019-03-07 19:56:58.830299+00	\N	f
+37	camfton@gmail.com	Afton	West	\N	4802508174	2019-03-07 19:57:09.765435+00	\N	f
+38	cjsprat@gmail.com	Cindy	Spratling	\N	480-242-5602	2019-03-07 19:59:44.92534+00	\N	f
+39	ashleyh4@gmail.com	Ashley	Bean	\N	4802521302	2019-03-07 20:02:13.35075+00	\N	f
+40	mollyheaton@hotmail.com	Molly	Heaton	\N	614-905-6179	2019-03-07 20:06:16.986314+00	\N	f
+41	amandabw85@yahoo.com	Amanda	Rutledge	\N	4807039243	2019-03-07 20:07:06.760429+00	\N	f
+42	mikel.north@gmail.com	Mikel	North	\N	3852517297	2019-03-07 20:08:40.669584+00	\N	f
+43	ashleybrookepalmer@gmail.com	Ashley	Palmer	\N	4803382151	2019-03-07 20:10:20.399297+00	\N	f
+44	m.killian17@gmail.com	Mary	Martin	\N	4804331240	2019-03-07 20:10:51.012538+00	\N	f
+45	ashleyllewis@gmail.com	Ashley	Lewis	\N	480-232-8490	2019-03-07 20:14:42.707738+00	\N	f
+46	lmaemurray@gmail.com	Lindsay	Murray	\N	4057143717	2019-03-07 20:15:19.08695+00	\N	f
+47	mirnaruiz@msn.com	Mirna	Ruiz	\N	6235707752	2019-03-07 20:15:59.63121+00	\N	f
+48	mandylyn45@gmail.com	Mandy 	Crouse 	\N	4809936836	2019-03-07 20:17:10.15674+00	\N	f
+49	heidijsmith77@gmail.com	Heidi	Smith	\N	6024216442	2019-03-07 20:17:41.542865+00	\N	f
+50	caitlinjonesgirl@gmail.com	Caitlin	Jones	\N	4802461037	2019-03-07 20:18:30.486389+00	\N	f
+51	kayla.bluth@gmail.com	Kayla	Bluth	\N	4803164221	2019-03-07 20:23:23.010666+00	\N	f
+52	baileemckown@gmail.com	Bailee 	Andes	\N	4803105588	2019-03-07 20:26:49.977058+00	\N	f
+53	amilynn.andes@gmail.com	Ami	Andes	\N	4802431655	2019-03-07 20:27:08.9363+00	\N	f
+54	jessicafarnsworth11@gmail.com	Jessica	Farnsworth 	\N	480-254-0153	2019-03-07 20:30:04.383475+00	\N	f
+55	tessrachelbates@gmail.com	Tess	Bates	\N	6023737775	2019-03-07 20:32:24.020924+00	\N	f
+56	lindsey_hansen3@hotmail.com	Lindsey 	Wahrer 	\N	6022847430	2019-03-07 20:33:27.017795+00	\N	f
+57	cheyennehansen199@msn.com	Cheyenne	Shepherd	\N	4804664027	2019-03-07 20:36:34.234094+00	\N	f
+58	meagbreds@gmail.com	Meagan	Bredsguard 	\N	4802784344	2019-03-07 20:38:45.865957+00	\N	f
+59	lily.k.tran@gmail.com	Lily	Allison	\N	2487551660	2019-03-07 20:39:04.271519+00	\N	f
+60	stacygambee@hotmail.com	Stacy	Jorgenson	\N	4802501564	2019-03-07 20:39:04.967679+00	\N	f
+61	emilyjbahr@gmail.com	Emily	Bahr	\N	8319028991	2019-03-07 20:39:30.631472+00	\N	f
+62	bbentley06@yahoo.com	Bridget	Bentley	\N	4807727538	2019-03-07 20:42:39.294489+00	\N	f
+63	hippiechick.ob@gmail.com	Erin	Kolb	\N	4802969360	2019-03-07 20:42:49.655977+00	\N	f
+64	lindsey2008@gmail.com	Lindsey	Minson	\N	4806068923	2019-03-07 20:45:23.247282+00	\N	f
+65	smileykyrst@gmail.com	Kyrsten	Jones	\N	702-810-2795	2019-03-07 20:49:09.605051+00	\N	f
+66	emilyclebaron@gmail.com	Emily	Lebaron	\N	8013721072	2019-03-07 20:52:51.800554+00	\N	f
+67	raylyntils@gmail.com	Raylyn	Tils	\N	480-529-2051	2019-03-07 20:52:59.46089+00	\N	f
+68	jolynn.kellis@gmail.com	Jolynn	Kellis	\N	18013692074	2019-03-07 20:53:24.600514+00	\N	f
+69	lacey.egan@gmail.com	Lacey	Egan	\N	8018564342	2019-03-07 20:55:01.234312+00	\N	f
+70	rachelalbertsen@gmail.com	Rachel	Albertsen	\N	6026350725	2019-03-07 20:55:18.013661+00	\N	f
+71	lauren.heywood92@gmail.com	Lauren	Heywood	\N	4802165004	2019-03-07 21:00:25.083086+00	\N	f
+72	kellyu@usa.com	Roslyn	LeBow 	\N	505-577-3716	2019-03-07 21:00:38.464152+00	\N	f
+73	heidiwhite86@gmail.com	heidi	white	\N	6024636431	2019-03-07 21:02:12.282923+00	\N	f
+74	tiffanynvaughn@gmail.com	Tiffany	Vaughn	\N	8016633425	2019-03-07 21:03:15.872517+00	\N	f
+75	sarahwells17@gmail.com	Sarah	Wells	\N	4802447616	2019-03-07 21:03:33.322683+00	\N	f
+76	chaddysgirl18@gmail.com	Stacy	Thompson	\N	4803889795	2019-03-07 21:06:51.421028+00	\N	f
+77	personataliez@hotmail.com	Natalie	Hill	\N	4805405000	2019-03-07 21:09:20.309937+00	\N	f
+78	gtgarlock@gmail.com	Gloria	Garlock	\N	3038773512	2019-03-07 21:09:49.739478+00	\N	f
+79	nicolecarpenter90@gmail.com	Nicole	Carpenter	\N	4804898383	2019-03-07 21:11:14.385457+00	\N	f
+80	peterson.katie.w@gmail.com	Katie	Peterson	\N	8019006915	2019-03-07 21:13:38.996608+00	\N	f
+81	jaimielyntanner@gmail.com	Jaimie	Tanner	\N	4805167924	2019-03-07 21:14:34.728648+00	\N	f
+82	specialteacher1@gmail.com	Carrie	Lofgreen	\N	4804404576	2019-03-07 21:16:48.324353+00	\N	f
+83	bmaestauffer@gmail.com	Brittany	Stauffer	\N	480-710-0721	2019-03-07 21:25:54.071577+00	\N	f
+84	angyee42@gmail.com	Angela	Yee	\N	4802097969	2019-03-07 21:26:02.625858+00	\N	f
+85	marcylorenz@yahoo.com	Marcy	Steiner	\N	6237924416	2019-03-07 21:32:36.716428+00	\N	f
+2	travbates93@gmail.com	Travis	Bates	\N	8013681998	2019-03-07 06:08:52.460334+00	\N	t
+4	celestewardrop@gmail.com	lulu	Wardrop	\N	480-600-9348	2019-03-07 15:10:12.543722+00	\N	t
+86	dauanielooq@gmail.com	Dauanie	Hansen	\N	4803633551	2019-03-07 21:34:09.385431+00	\N	f
+87	courtney.mcnabb@gmail.com	Courtney	McNabb	\N	4802138741	2019-03-07 21:40:45.80696+00	\N	f
+88	jeanettechasedavis@gmail.com	Jeanette	Davis	\N	9097310013	2019-03-07 21:45:35.198383+00	\N	f
+89	kortneyjt@gmail.com	Kortney	Young	\N	4807341826	2019-03-07 21:48:06.520544+00	\N	f
+90	carriebeard1@gmail.com	Carrie	Frampton	\N	9148153020	2019-03-07 21:59:35.26907+00	\N	f
+91	tnmerrill@gmail.com	Natalie	merrill	\N	4804031949	2019-03-07 22:11:09.974628+00	\N	f
+92	katiehey@gmail.com	Katie	Garcia	\N	6025380415	2019-03-07 22:14:04.96983+00	\N	f
+93	e_ddahl@yahoo.com	Elizabeth	Dahl	\N	4806788957	2019-03-07 22:17:36.113227+00	\N	f
+94	sidney.joy@hotmail.com	Sidney	Bevans	\N	4802610752	2019-03-07 22:28:04.411612+00	\N	f
+95	patricia.d.shelley@gmail.com	Trisha	Shelley	\N	8014715254	2019-03-07 22:35:28.375533+00	\N	f
+96	kelli.gunn@yahoo.com	Kelli	Gunn	\N	4802052948	2019-03-07 22:35:32.131485+00	\N	f
+97	rebasheba@gmail.com	Rebecca	Graham	\N	8014048440	2019-03-07 22:36:00.277163+00	\N	f
+98	alexaholland11@gmail.com	Alexa	Holland	\N	8015506524	2019-03-07 22:36:08.46988+00	\N	f
+99	muellerlaura79@yahoo.com	Laura	Mueller	\N	6027430100	2019-03-07 22:59:47.635838+00	\N	f
+100	byumarissa@gmail.com	Marissa	Robertson 	\N	8018855373	2019-03-07 23:04:14.325059+00	\N	f
+101	mjeross3@gmail.com	Maaike	Ross	\N	4805707950	2019-03-07 23:06:40.184457+00	\N	f
+102	chelseafarnsworth07@gmail.com	Chelsea	Farnsworth	\N	480-993-7734	2019-03-07 23:07:26.021826+00	\N	f
+103	tiffanycook2@gmail.com	Tiffany	Cook	\N	4802288395	2019-03-07 23:09:49.399391+00	\N	f
+104	emilyanne58@gmail.com	Emily	Davies	\N	8019151009	2019-03-07 23:23:22.011934+00	\N	f
+105	mikeandjenbills@gmail.com	Jennifer	Seifert	\N	4803881494	2019-03-07 23:25:46.583514+00	\N	f
+106	rickandcamille@q.com	Camille	Wittwer	\N	4803592456	2019-03-07 23:36:04.871826+00	\N	f
+107	hollyerhard@gmail.com	Holly	Erhard	\N	4805848266	2019-03-07 23:39:27.537727+00	\N	f
+108	bekah_tx@yahoo.com	Bekah	Danielson	\N	4806037171	2019-03-07 23:44:59.647525+00	\N	f
+109	millsssss@yahoo.com	Stephanie 	Cox	\N	4802207442	2019-03-07 23:49:04.029999+00	\N	f
+110	tatum.hendy@gmail.com	Tatum	Hendrickson	\N	4806890807	2019-03-08 00:12:03.12324+00	\N	f
+111	kristina.lauren@yahoo.com	Kristi	King	\N	4803101099	2019-03-08 00:25:30.374329+00	\N	f
+112	brieann.hales@gmail.com	BrieAnn	Hales	\N	4807605099	2019-03-08 00:26:15.470625+00	\N	f
+113	meansj44@yahoo.com	Jessica	McGhan	\N	8183703349	2019-03-08 00:41:35.260434+00	\N	f
+114	carobinson06@yahoo.com	Amber	Robinson	\N	4802382458	2019-03-08 01:03:38.686355+00	\N	f
+115	asmischen@gmail.com	Angela	Mischen	\N	6024359151	2019-03-08 01:25:01.875155+00	\N	f
+116	kmagnio@gmail.com	Korina	Oswald	\N	4806883957	2019-03-08 01:27:04.472321+00	\N	f
+117	fordmeg23@yahoo.com	Megan	Ford	\N	4803477242	2019-03-08 01:35:42.593072+00	\N	f
+118	brendystowell@gmail.com	Beendy	Stowell	\N	4808618226	2019-03-08 01:40:57.162873+00	\N	f
+119	winterwhit@yahoo.com	Whitney	Winter	\N	623-202-2608	2019-03-08 01:54:58.703016+00	\N	f
+120	beckapace@gmail.com	Rabecka	Pace	\N	4803300352	2019-03-08 02:17:46.729141+00	\N	f
+121	katiemiller02@gmail.com	Kate	Miller	\N	6024697755	2019-03-08 02:25:26.276171+00	\N	f
+122	whit1984@gmail.com	Whitney	Hendricks	\N	2085699141	2019-03-08 02:53:30.010009+00	\N	f
+123	rebeccamclaws@gmail.com	Rebecca	McLaws	\N	4805703152	2019-03-08 02:58:38.142625+00	\N	f
+124	brittney29@gmail.com	Brittney	Brewer	\N	4803958988	2019-03-08 03:10:25.40004+00	\N	f
+125	nipote12@yahoo.com	Neelie	Ray	\N	480-325-3977	2019-03-08 03:25:46.635522+00	\N	f
+126	ctr4aleece@yahoo.com	Aleece	Martinez	\N	4803298162	2019-03-08 03:35:13.785828+00	\N	f
+127	jilindstrom@cox.net	Jennifer 	Lindstrom	\N	6029200178	2019-03-08 03:50:46.149021+00	\N	f
+128	jen94shelby@gmail.com	Jenny	Stratton	\N	4804149454	2019-03-08 04:01:34.166254+00	\N	f
+129	aminah.abdelhaq@gmail.com	Aminah	Abdelhaq	\N	7865864713	2019-03-08 04:13:14.489917+00	\N	f
+130	thehornefam@gmail.com	Stephanie	Horne	\N	4804677108	2019-03-08 04:42:17.454497+00	\N	f
+132	michelle.k.hill@gmail.com	Michelle	Ashcraft 	\N	480-262-9058	2019-03-08 04:52:17.203172+00	\N	f
+133	corinnard@gmail.com	Corinne	McCleve	\N	8018226378	2019-03-08 05:04:01.477947+00	\N	f
+134	mjmehrer@gmail.com	Miranda	Mehrer	\N	6196695509	2019-03-08 14:40:07.321593+00	\N	f
+135	jacquet629@gmail.com	Jackie	Cunningham	\N	4803635370	2019-03-08 15:02:02.190695+00	\N	f
+136	brittbdavis@gmail.com	Brittany	Davis	\N	4807102993	2019-03-08 16:10:13.541153+00	\N	f
+137	betinapowers@gmail.com	Betina	Powers	\N	6025657622	2019-03-08 16:25:36.931821+00	\N	f
+138	cope.aubrey@gmail.com	Aubrey	Flaherty	\N	4806896378	2019-03-08 16:54:23.532375+00	\N	f
+139	vness1119@gmail.com	Vanessa	Pflug	\N	3109220432	2019-03-08 20:41:02.197349+00	\N	f
+140	ashcandiebabe@hotmail.com	Ashley	Miller	\N	7605338858	2019-03-08 20:59:02.341409+00	\N	f
+141	jandjsharpie@gmail.com	Jordan	Sharp	\N	8013727353	2019-03-08 22:59:47.802683+00	\N	f
+142	natalie357@gmail.com	Natalie	Allred	\N	4802012124	2019-03-08 23:35:24.555858+00	\N	f
+143	shannonkpacker@gmail.com	Shannon	Packer	\N	8015602025	2019-03-09 00:02:53.415301+00	\N	f
+144	rochellerieck@yahoo.com	Rochelle	Rieck	\N	4802014557	2019-03-09 00:39:42.510406+00	\N	f
+145	lisahall07@gmail.com	Lisa	Hall	\N	832-379-3907	2019-03-09 02:09:06.272821+00	\N	f
+146	kelcieahardy@gmail.com	Kelcie	Hardy	\N	4802724040	2019-03-09 03:14:57.179057+00	\N	f
+147	woodmanusaf@gmail.com	Mary	Woodman	\N	4807477266	2019-03-09 03:16:01.612797+00	\N	f
+148	jess.holstad@gmail.com	Jessica	Holstad	\N	4802743716	2019-03-09 03:40:43.299157+00	\N	f
+149	jennyhogle526@gmail.com	Jenny	Hogle 	\N	4807977684	2019-03-09 05:19:30.292906+00	\N	f
+150	jjadlot10@hotmail.com	Jeani	Mccormick	\N	4802210360	2019-03-09 05:36:30.719348+00	\N	f
+151	paigevanderpool@gmail.com	Paige	Vanderpool	\N	4086126147	2019-03-09 07:55:00.264639+00	\N	f
+152	katiejlynn@gmail.com	Katie	Lynn	\N	4805183573	2019-03-09 17:18:03.117572+00	\N	f
+154	lar07001@byui.edu	Meaghan	Blunck	\N	2082015263	2019-03-09 17:47:40.850714+00	\N	f
+155	analowise.wilt@gmail.com	Ana	Wilt	\N	4077569205	2019-03-09 18:24:03.501099+00	\N	f
+156	btuttle4@dmail.dixie.edu	Brittany	Hicken	\N	4357678126	2019-03-09 20:13:42.550547+00	\N	f
+157	anirtake@hotmail.com	Katrina	Whitley	\N	5204903228	2019-03-09 20:33:20.629228+00	\N	f
+158	marenbloomer3@gmail.com	Maren	Bloomer	\N	4802202281	2019-03-09 21:05:23.957089+00	\N	f
+159	mishsmail@gmail.com	Michelle	Turley	\N	4803309659	2019-03-09 23:45:02.628924+00	\N	f
+160	eclousemesa@yahoo.com	Emilee	Clouse	\N	4802769259	2019-03-10 01:28:07.763794+00	\N	f
+161	em.ander.89@gmail.com	Emily	Anderson	\N	6027302370	2019-03-10 04:48:07.513171+00	\N	f
+162	mattisynbrown@gmail.com	Mattisyn	Brown	\N	4803138543	2019-03-10 17:01:24.91284+00	\N	f
+163	taylorelizabethboyd@gmail.com	Taylor	Boyd	\N	4803388423	2019-03-10 17:41:21.973835+00	\N	f
+164	mccormickrt@gmail.com	Tarryn	McCormick	\N	8083334541	2019-03-10 20:20:49.606107+00	\N	f
+165	summersfletcher@gmail.com	Summer	Fletcher	\N	4808623093	2019-03-10 21:34:56.577668+00	\N	f
+166	jillfischbeck@gmail.com	Jill	fischbeck	\N	4803134505	2019-03-11 15:26:57.894329+00	\N	f
+167	heverett6@gmail.com	Heidi	Everett 	\N	4802990927	2019-03-11 15:27:19.900953+00	\N	f
+168	jakstenquist@gmail.com	Kelsey	Stenquist	\N	4804925830	2019-03-11 17:30:57.439659+00	\N	f
+169	sarahmt84@gmail.com	Sarah	Taylor	\N	4802169322	2019-03-11 17:53:31.270162+00	\N	f
+170	travgood@yahoo.com	Sunni	Goodman	\N	6029999795	2019-03-11 17:54:30.215643+00	\N	f
+171	kimmydover@hotmail.com	Kim	Dover	\N	15126260503	2019-03-11 18:03:38.519124+00	\N	f
+172	brontepearl@gmail.com	Bronte	Burgess	\N	18018510302	2019-03-11 19:02:51.914707+00	\N	f
+173	haleyiorg@gmail.com	Haley	Iorg	\N	8013729996	2019-03-11 19:29:23.418437+00	\N	f
+174	jenniekolibas@yahoo.com	Jennifer	Kolibas	\N	4804785621	2019-03-11 19:59:28.056315+00	\N	f
+175	kristenfcampbell@gmail.com	Kristen	Campbell	\N	14808228596	2019-03-11 20:18:59.664134+00	\N	f
+176	kaylangraf@gmail.com	Kayla	Graf	\N	5207208155	2019-03-11 21:27:10.731599+00	\N	f
+177	jennikarae523@gmail.com	Jennika	Anderson	\N	7602164367	2019-03-11 22:57:27.087402+00	\N	f
+178	nicolehochuli@hotmail.com	Nicole	Hochuli	\N	4803906675	2019-03-12 18:33:30.461285+00	\N	f
+179	kristenkhyde@gmail.com	Kristen	Hyde	\N	4802018316	2019-03-12 21:07:53.885049+00	\N	f
+180	madsen.ashley@gmail.com	Ashley	Madsen	\N	4802059435	2019-03-12 21:34:45.470505+00	\N	f
+181	paige_wilde@hotmail.com	Paige	Olson	\N	3609142358	2019-03-12 22:43:17.321656+00	\N	f
+182	knb_7@yahoo.com	Kristin	Shipley	\N	4805674939	2019-03-12 23:03:53.268192+00	\N	f
+183	hijabi4life87@gmail.com	Faith	B	\N	8432982424	2019-03-13 14:32:22.381147+00	\N	f
+184	kaseyscurr@hotmail.com	Kasey	Perkinson	\N	480-294-3659	2019-03-13 17:35:12.717603+00	\N	f
+185	kelsiebair@gmail.com	Kelsie	Krenkel	\N	2816784700	2019-03-13 23:12:29.202623+00	\N	f
+186	bair519@yahoo.com	Alicia	Bair	\N	7142745551	2019-03-14 00:24:12.707312+00	\N	f
+187	chelsea.barwick@gmail.com	Chelsea	Barwick	\N	2818446688	2019-03-14 00:48:09.923416+00	\N	f
+188	jessmhammer@gmail.com	Jessica	Hammer	\N	4804279623	2019-03-14 01:12:07.32548+00	\N	f
+189	lauren.tipton09@gmail.com	Lauren	Tipton	\N	18054699513	2019-03-14 18:29:29.07922+00	\N	f
+190	swimpuffertest@yahoo.com	Swimmy	Testpants	\N	8013681998	2019-03-15 02:08:57.26153+00	\N	f
+191	jessicaykozlowski@gmail.com	Jessica	Kozlowski	\N	4896263839	2019-03-15 04:00:18.074235+00	\N	f
+192	cas0281@yahoo.com	Chelsea	Laplante	\N	2816285759	2019-03-15 23:00:02.546942+00	\N	f
+193	carlyhales@gmail.com	Carly	Byram	\N	3104904796	2019-03-16 00:20:41.151479+00	\N	f
+194	jmjones430@gmail.com	Jessica	Jones	\N	4808862246	2019-03-16 15:38:08.875218+00	\N	f
+195	laceyd22@yahoo.com	lacey	urban	\N	480-695-8032	2019-03-16 19:33:16.849638+00	\N	f
+196	riggsfam@gmail.com	Lindsay	Riggs	\N	4806946713	2019-03-17 00:31:42.138406+00	\N	f
+197	cheyennemhudson4@gmail.com	Cheyenne	Hudson	\N	4802238511	2019-03-17 01:11:48.824878+00	\N	f
+198	stephanieevans07@gmail.com	Stephanie	Evans	\N	4802168534	2019-03-18 05:32:15.112889+00	\N	f
+199	diana.irving@hotmail.com	Diana	Irving	\N	4357709381	2019-03-18 06:45:00.732898+00	\N	f
+200	tylerameliajohnson@gmail.com	Amelia	Johnson	\N	4804308520	2019-03-18 23:08:31.475495+00	\N	f
+201	shi25@live.com	Shital	Patel	\N	3043740097	2019-03-19 00:48:26.318707+00	\N	f
+202	emollenhauer@gmail.com	Emali	Mollenhauer	\N	4805861030	2019-03-19 18:36:24.494115+00	\N	f
+203	kaseyhalling@gmail.com	Kasey	Halling	\N	8015298978	2019-03-19 23:07:24.014254+00	\N	f
+204	jopnavarro@gmail.com	Joplin	Navarro	\N	6025662921	2019-03-19 23:52:50.36482+00	\N	f
+205	brittney.foutz@yahoo.com	Brittney	Foutz	\N	6266898784	2019-03-20 02:44:01.687666+00	\N	f
+206	estherashaw@hotmail.com	Esther	Connolly	\N	4802412060	2019-03-20 10:59:02.54429+00	\N	f
+207	celestezaccardi@yahoo.com	 Celeste	Zaccardi	\N	4802154907	2019-03-20 20:37:51.827635+00	\N	f
+208	suzanne.odell@yahoo.com	Suzanne	O'Dell	\N	4802310978	2019-03-20 22:22:38.709489+00	\N	f
+209	ashleybrimhall@gmail.com	Ashley	Brimhall	\N	4802854230	2019-03-21 00:08:21.614839+00	\N	f
+210	asugirl03@hotmail.com	Heather	Payne	\N	4802018772	2019-03-21 21:03:37.916733+00	\N	f
+211	lindseydchamberlain@gmail.com	Lindsey	Chamberlain	\N	4802550154	2019-03-22 02:56:28.556455+00	\N	f
+212	kalynb7@yahoo.com	Kalyn	Haws	\N	4805779277	2019-03-22 06:18:42.743109+00	\N	f
+213	kellibennett13@yahoo.com	Kelli	Johnson	\N	9792556893	2019-03-22 20:42:51.432952+00	\N	f
+214	tessarlee@gmail.com	Tessa	Lee	\N	4802484606	2019-03-22 22:50:11.963269+00	\N	f
+215	kailabiggsagent@gmail.com	Kaila	Biggs	\N	4805325732	2019-03-22 22:59:02.263495+00	\N	f
+216	bbalganon@gmail.com	Bianca	Feild	\N	6027917123	2019-03-23 12:55:42.097156+00	\N	f
+217	chloe.dana@gmail.com	Chloe	Williams	\N	6025926353	2019-03-24 16:38:28.091301+00	\N	f
+218	cnbevans91@gmail.com	Cherae	Edwards	\N	4805101475	2019-03-25 00:25:10.552466+00	\N	f
+219	meaganhoopes@gmail.com	Meagan	Hoopes	\N	480885321	2019-03-25 00:37:42.406463+00	\N	f
+220	courtneyhoopes@hotmail.com	Courtney	Hoopes	\N	4802923247	2019-03-25 00:37:50.949969+00	\N	f
+221	jen.christensed@gmail.com	JENNIFER	ROBERTS	\N	4803585405	2019-03-25 16:07:59.881304+00	\N	f
+222	jenny.c.roberts12@gmail.com	JENNIFER	ROBERTS	\N	4803585405	2019-03-25 16:08:40.600859+00	\N	f
+223	kelseybaker1717@gmail.com	Kelsey	Baker	\N	4804337240	2019-03-25 16:26:55.139096+00	\N	f
+224	macibamrick@gmail.com	Maci	Bamrick	\N	4806009556	2019-03-25 21:14:34.625987+00	\N	f
+225	christi.killian@gmail.com	Christi	Adamusko	\N	4802627349	2019-03-25 22:55:00.141385+00	\N	f
+226	lexikwagner@yahoo.com	Lexi	Wagner 	\N	6024037349	2019-03-26 20:31:52.874839+00	\N	f
+227	sarahccoon@gmail.com	Sarah	Coon	\N	4808248946	2019-03-26 21:23:10.803309+00	\N	f
+228	ktstartup@gmail.com	Kaitie	Myers	\N	8016021432	2019-03-26 22:23:21.55658+00	\N	f
+229	kellois@gmail.com	Kelly	Starr	\N	4806127841	2019-03-26 22:36:21.870132+00	\N	f
+230	swade.edu@gmail.com	Staci	Wade	\N	6195044906	2019-03-27 06:18:00.164668+00	\N	f
+231	shveat.fruitcup@gmail.com	Katie	Spaulding	\N	4806127033	2019-03-27 14:34:39.998462+00	\N	f
+232	rebeccaarnett01@hotmail.com	Rebecca	Wright	\N	4806205621	2019-03-28 17:56:04.766164+00	\N	f
+233	kathyn311@gmail.com	kathy	hatch	\N	8018369692	2019-03-28 19:59:03.794491+00	\N	f
+234	kenxena@yahoo.com	Kenzie	Ruiz	\N	4806783331	2019-03-28 22:08:35.753948+00	\N	f
+235	abenn09@yahoo.com	Alice	Fletcher	\N	4802354051	2019-03-29 03:14:25.649351+00	\N	f
+236	ckbreinholt@gmail.com	HYPE PHARM	KRISTIN BREINHOLT	\N	6026143590	2019-03-29 03:14:34.506767+00	\N	f
+237	jenmclain@gmail.com	Jen	McLain	\N	8017351186	2019-03-30 06:40:49.537263+00	\N	f
+238	tanabell90@gmail.con	Tana	Bell	\N	2082556712	2019-03-30 18:46:36.426546+00	\N	f
+239	jwcluff@hotmail.com	Jayne	Cluff	\N	4802397811	2019-03-31 22:56:30.737601+00	\N	f
+240	jamiekieta@yahoo.com	Jamie	Kieta	\N	4807739398	2019-04-01 20:39:06.013052+00	\N	f
+241	estheraseibold@gmail.com	Esther	Seibold	\N	208-219-9138	2019-04-02 17:08:04.975779+00	\N	f
+242	caracnewell@icloud.com	Cara	Newell	\N	4806000339	2019-04-02 18:04:03.199141+00	\N	f
+243	pahinkle@gmail.com	Priscila	Hinkle	\N	4806167450	2019-04-02 23:24:37.707094+00	\N	f
+244	jpnowell@gmail.com	JAMIE	NOWELL	\N	4806524959	2019-04-03 15:31:32.680129+00	\N	f
+245	mikietiff@gmail.com	Michaela	Weber	\N	4802762036	2019-04-03 16:51:53.916136+00	\N	f
+247	mallorymjarvis@gmail.com	Mallory	Jarvis	\N	4806209699	2019-04-03 19:09:49.619587+00	\N	f
+248	rebeccawoolf3@gmail.com	Becca	Woolf	\N	8016690965	2019-04-03 19:10:27.127921+00	\N	f
+249	meagan.siegel@yahoo.com	Meagan	Siegel	\N	5204959575	2019-04-03 22:02:29.537835+00	\N	f
+250	annieruden@gmail.com	Annie	Ruden	\N	971-241-2693	2019-04-03 23:21:35.348544+00	\N	f
+251	mclem09@gmail.com	Morgan	King	\N	4802548762	2019-04-04 02:59:47.126583+00	\N	f
+252	erinleavitt13@gmail.com	Erin	Leavitt	\N	480-343-7717	2019-04-04 14:33:36.293623+00	\N	f
+253	jaylynbrug@yahoo.com	Jayden	Cone	\N	4802964243	2019-04-04 19:33:11.130876+00	\N	f
+254	shelby.hatch15@gmail.com	Shelby	Hatch	\N	4807992289	2019-04-04 20:17:38.824004+00	\N	f
+255	montessorilearningcenterinmesa@gmail.com	Larissa 	Spencer 	\N	4806282949	2019-04-04 20:37:45.036353+00	\N	f
+256	arnischan7@gmail.com	Ali	Nischan	\N	6024303271	2019-04-04 20:43:31.127841+00	\N	f
+257	aprilfrentheway@gmail.com	April	frentheway	\N	4804591722	2019-04-04 20:57:03.389752+00	\N	f
+258	mamaneedstea@gmail.com	Janelle	Clower	\N	480-215-5100	2019-04-05 03:44:43.075347+00	\N	f
+259	kalliebrown65@gmail.com	Kallie	Brown	\N	4802153994	2019-04-05 16:27:27.032061+00	\N	f
+260	brittwillis@gmail.com	Brittany	Fullmer	\N	4802312762	2019-04-05 23:06:16.433423+00	\N	f
+261	erinmathews19@gmail.com	Erin	Mathews	\N	801-638-8021	2019-04-06 01:47:27.516877+00	\N	f
+262	allisonpehrson@gmail.com	Allison	Pehrson	\N	2088907701	2019-04-08 05:45:19.412084+00	\N	f
+263	samanthalyn1106@gmail.com	Samantha	Gless	\N	4806780093	2019-04-08 17:10:24.584286+00	\N	f
+264	sabrinasuth33@gmail.com	Sabrina	Rabe	\N	480-296-8316	2019-04-08 22:07:38.719965+00	\N	f
+265	nadiashea814@gmail.com	Nadia	Saco	\N	4804060360	2019-04-10 03:54:21.181322+00	\N	f
+266	alexnorberg17@gmail.com	Alex	Norberg	\N	4802041880	2019-04-10 05:34:44.207034+00	\N	f
+267	cas0280@yahoo.com	Chelsea	LaPlante	\N	2816285759	2019-04-10 16:02:10.696686+00	\N	f
+268	brittany.noble77@gmail.com	Brittany	Noble	\N	4807081429	2019-04-10 21:03:31.173298+00	\N	f
+269	aburton28@gmail.com	Amy	Spencer	\N	4804485157	2019-04-11 03:48:06.043683+00	\N	f
+270	courtneyhope20@gmail.com	Courtney	Hope	\N	408-710-8185	2019-04-11 16:44:43.125086+00	\N	f
+271	aickler74@gmail.com	Andrea	Ickler	\N	7742842200	2019-04-11 20:50:00.141952+00	\N	f
+272	alburt25@hotmail.com	Allison	Fleming	\N	6023184669	2019-04-12 19:17:50.087598+00	\N	f
+273	kristelkuzdas@gmail.com	Kristel	Kuzdas	\N	4802985123	2019-04-14 19:08:28.471259+00	\N	f
+274	kc_carranza@hotmail.com	Karalee	Carranza	\N	4802748520	2019-04-15 04:37:58.454581+00	\N	f
+275	sonez26@msn.com	Sonia	Hernandez	\N	4802340530	2019-04-16 01:09:42.438556+00	\N	f
+276	arn09003@byui.edu	Jeanette	Bozeman	\N	4802006125	2019-04-16 20:19:50.080159+00	\N	f
+277	kaelynnrandall@gmail.com	Kae Lynn	Randall	\N	4806648188	2019-04-16 21:47:26.484309+00	\N	f
+278	eberrey@gmail.com	Elizabeth	Berrey	\N	6027382594	2019-04-17 15:34:00.263091+00	\N	f
+279	jthruston85@gmail.com	Jaree	Thruston	\N	4807979293	2019-04-17 18:24:57.081006+00	\N	f
+280	lizwooden123@gmail.com	liz	wooden	\N	4802154929	2019-04-17 23:23:28.56636+00	\N	f
+281	tnkhalterman@gmail.com	Karen	Halterman	\N	4802438758	2019-04-18 15:59:09.801285+00	\N	f
+282	dily11@yahoo.com	Diana	Chambers	\N	4803300206	2019-04-18 19:24:43.886224+00	\N	f
+283	ohhkae@hotmail.com	Kaelin	Shaker	\N	6024039816	2019-04-19 14:57:15.724484+00	\N	f
+284	connieffoster@gmail.con	Connie	Foster	\N	4804579742	2019-04-19 15:42:12.483999+00	\N	f
+285	asunuts@cox.net	Shelley	Bartholomew	\N	4805442300	2019-04-19 20:41:39.444075+00	\N	f
+286	tabitha.johnson.1@asu.edu	Tabitha	Morris	\N	9283220803	2019-04-20 23:47:18.266341+00	\N	f
+287	ctdunn90@gmail.com	Caitlin 	Cullipher 	\N	480-347-7337	2019-04-21 14:32:46.816491+00	\N	f
+288	dsrt16@gmail.com	Katie	Chambers	\N	8014008166	2019-04-21 19:51:24.359252+00	\N	f
+289	mikaliewillis@yahoo.com	Mikalie 	Willis 	\N	4802583638	2019-04-22 16:29:56.864507+00	\N	f
+290	lindseyk.shepherd@gmail.com	Lindsey	Shepherd	\N	4802737116	2019-04-22 16:32:39.690028+00	\N	f
+291	valahumada@gmail.com	Valeria	Woltman	\N	4802202938	2019-04-23 05:44:01.623284+00	\N	f
+292	smitherika1033@gmail.com	Erika	Smith	\N	801-633-8779	2019-04-23 15:10:55.203843+00	\N	f
+293	amberlmasters@gmail.com	Amber	Masters	\N	9186064132	2019-04-23 18:34:22.782773+00	\N	f
+294	barrazatwins@gmail.com	Angela	Barraza	\N	4802442838	2019-04-24 01:57:22.811535+00	\N	f
+295	amberboyster@gmail.com	Amber	Boyster	\N	4807340909	2019-04-24 21:26:12.563775+00	\N	f
+296	dlarson88@gmail.com	Danielle	Sherwood	\N	4809800862	2019-04-24 22:44:51.72138+00	\N	f
+297	emmaleschaub@gmail.com	Emma	Schaub	\N	4804313136	2019-04-25 19:21:00.938196+00	\N	f
+298	tandmjones21@gmail.com	Melissa	Jones	\N	4355907055	2019-04-25 22:53:38.012785+00	\N	f
+299	jenlj@mac.com	Jennie Lynn	Johnson	\N	4352323150	2019-04-26 00:43:54.793659+00	\N	f
+300	lindsayelmer17@gmail.com	Lindsay	Elmer	\N	4802258341	2019-04-26 00:44:55.981345+00	\N	f
+301	kaplowman@cox.net	Kaley	Hatfield	\N	4803131545	2019-04-26 22:33:23.410194+00	\N	f
+302	mallorie.kelly@gmail.com	Mallorie	Kelly	\N	4805808837	2019-04-27 05:43:02.688719+00	\N	f
+303	cristamceuen@gmail.com	Crista	mceuen	\N	14802251501	2019-04-27 18:00:49.148624+00	\N	f
+304	ehannon01@gmail.com	Justin	Biske	\N	4807899540	2019-04-27 19:00:40.800722+00	\N	f
+305	chantelperez@hotmail.com	Chantel	Delara	\N	4808253204	2019-04-28 00:15:59.492917+00	\N	f
+306	sheliseh@yahoo.com	Shelise	Raymond 	\N	4802625551	2019-04-28 16:50:21.119999+00	\N	f
+307	carmencastillo31@gmail.com	Carmen	CASTILLO	\N	4803182819	2019-04-28 19:00:20.829514+00	\N	f
+308	jmjccj@msn.com	Catherine 	Jones	\N	4808610690	2019-04-29 21:11:32.462165+00	\N	f
+309	nicolecain2015@gmail.com	Nicole	Cain	\N	480-622-7996	2019-04-30 04:26:15.083435+00	\N	f
+310	kimhugsny@yahoo.com	Kim	Hughes	\N	4803267549	2019-04-30 12:48:36.572012+00	\N	f
+311	kristibolton@cox.net	Kristi	Bolton	\N	480-695-3964	2019-04-30 17:30:50.56177+00	\N	f
+312	laurelin.ottesen@gmail.com	Laurelin	Ottesen	\N	8017175699	2019-04-30 19:25:49.379591+00	\N	f
+313	audascanbe@hotmail.com	Audrey	Jensen	\N	4802049626	2019-05-01 18:22:34.115954+00	\N	f
+314	apetznick@mac.com	Alex 	Bray	\N	6027910838	2019-05-03 15:49:26.901457+00	\N	f
+315	kristydewitt12@gmail.com	Kristy	Dewitt	\N	4805931501	2019-05-03 21:57:00.426246+00	\N	f
+316	jackienmeeks@yahoo.com	Jacqueline	Meeks	\N	480-298-7268	2019-05-05 01:25:35.414672+00	\N	f
+317	bock_sheryl@yahoo.com	Sherry	Bock	\N	6234149058	2019-05-05 01:47:19.712406+00	\N	f
+318	kileykay8@gmail.com	Kiley	Forrest	\N	4805325255	2019-05-05 03:56:41.291099+00	\N	f
+319	kailakbiggs@gmail.com	Kaila	Biggs	\N	4805325732	2019-05-05 22:13:04.218437+00	\N	f
+320	mckenzieporter89@gmail.com	McKenzie	Allen	\N	4802921215	2019-05-05 23:41:25.021338+00	\N	f
+321	mlr4343@gmail.com	Meredith	Reynolds	\N	6027051667	2019-05-06 04:09:27.997618+00	\N	f
+322	jrorta77@gmail.com	jaime	orta	\N	4802026837	2019-05-06 15:47:29.586062+00	\N	f
+323	karenkempton@gmail.com	Karen	Kempton	\N	4807735466	2019-05-06 15:48:24.830292+00	\N	f
+324	nataliegar13@yahoo.com	natalie	garcia	\N	4804081822	2019-05-08 18:40:12.800373+00	\N	f
+325	nursenat1@gmail.com	Natalie	Nygren	\N	4802526054	2019-05-08 19:23:04.870325+00	\N	f
+326	mcneil.jessica812@gmail.com	Jessica	McNeil	\N	7202784099	2019-05-09 17:12:09.370904+00	\N	f
+327	jwg313@gmail.com	Jordan	Greggersen	\N	4804152041	2019-05-09 18:47:35.710394+00	\N	f
+328	karajohansenrdh@gmail.com	Kara	Johansen	\N	4802294767	2019-05-10 05:04:54.503327+00	\N	f
+329	sarahansen8@gmail.com	Sara	Johansen	\N	14802099821	2019-05-10 05:23:27.065832+00	\N	f
+330	croutsong@gmail.com	Carissa	Routsong	\N	4802393556	2019-05-10 23:08:35.596418+00	\N	f
+331	n.atluri@yahoo.com	Naveen	Atluri	\N	9727465535	2019-05-11 01:28:38.438533+00	\N	f
+332	annessahakes@gmail.com	Annessa	Hakes	\N	4803264587	2019-05-11 16:44:46.354551+00	\N	f
+333	annabelcano01@gmail.com	Annabel	Cano	\N	6025507600	2019-05-12 17:09:03.606698+00	\N	f
+334	trish.sunio@icloud.com	Trisha	Sunio	\N	4806898686	2019-05-13 02:49:42.359837+00	\N	f
+335	jilleverton6@gmail.com	Jill	Everton	\N	480-241-6077	2019-05-14 15:10:03.401576+00	\N	f
+336	leilaniili@hotmail.com	Leilani	Reynolds	\N	4803246247	2019-05-14 18:24:05.822365+00	\N	f
+337	kellie_andes@hotmail.com	Kellie	Rappleye	\N	4802921584	2019-05-14 19:02:14.08821+00	\N	f
+338	anna.joye7@gmail.com	Annie	Carter	\N	4806957847	2019-05-15 15:01:52.47947+00	\N	f
+339	lindsaz@gmail.com	Lindsay	Ortiz	\N	14806881808	2019-05-15 21:07:09.753411+00	\N	f
+340	lasterm2000@yahoo.com	Sandra	Laster	\N	2175531043	2019-05-17 00:34:29.902839+00	\N	f
+341	smabel2@hotmail.com	Samantha 	Abel	\N	480-686-6115	2019-05-17 01:14:38.371929+00	\N	f
+342	cara.hanna@hotmail.com	Cara	McEuen 	\N	7203310058	2019-05-17 22:34:22.929939+00	\N	f
+343	caitlyncrutcher@gmail.com	Caitlyn	Williams	\N	6157388242	2019-05-19 01:04:07.945318+00	\N	f
+344	allisonsball@hotmail.com	Allison	Saltos	\N	2085591480	2019-05-19 04:18:53.950901+00	\N	f
+345	ashleyheywood2@gmail.com	Ashley	Heywood	\N	4892282440	2019-05-20 00:30:32.574811+00	\N	f
+346	pkgreenfam@yahoo.com	Kelsie	Green	\N	480-250-3895	2019-05-21 17:24:27.193311+00	\N	f
+347	camianncaldwell@gmail.com	Cami	Tolley	\N	4802058883	2019-05-22 04:27:41.624259+00	\N	f
+348	heatherdnewell@gmail.com	Heather	Newel	\N	6027858520	2019-05-22 20:01:00.133327+00	\N	f
+349	emcirac@gmail.com	Emily	Cirac 	\N	4807549995	2019-05-24 14:46:05.683794+00	\N	f
+350	stacy.tussey27@gmail.com	Stacy	Tussey	\N	4804353914	2019-05-24 21:32:52.236293+00	\N	f
+351	sarahvid88@gmail.com	Sarah	Lawlor	\N	6027252270	2019-05-25 18:51:37.077853+00	\N	f
+352	clhill282@gmail.com	Christy 	Scoresby	\N	9725336712	2019-05-25 22:14:47.801467+00	\N	f
+353	sdawnking@gmail.com	Sarah	King	\N	6028263923	2019-05-26 03:35:13.950298+00	\N	f
+354	noor.ateyeh1@gmail.com	Noor	Ateyeh	\N	4803703509	2019-05-27 21:11:26.5982+00	\N	f
+355	brown_crystald@hotmail.com	Crystal	Brown	\N	4802006988	2019-05-29 00:33:58.011741+00	\N	f
+356	jadeni79@gmail.com	Devona	Mitchell 	\N	6232398427	2019-05-29 07:14:39.111037+00	\N	f
+357	kycarrietam@yahoo.com	Carrie	Tam	\N	4808686379	2019-05-29 18:49:13.874606+00	\N	f
+358	loveleec15@gmail.com	Lee	Contreras	\N	4805807227	2019-05-29 18:53:37.798687+00	\N	f
+359	aickler74@gmaill.com	Andrea	Ickler	\N	7742842200	2019-05-29 23:51:43.010751+00	\N	f
+360	lindsaydickerson10@gmail.com	Lindsay	Dickerson	\N	4802441857	2019-05-30 15:39:59.231026+00	\N	f
+361	azbellons@yahoo.com	Spring 	Bellon	\N	4806343444	2019-06-01 17:56:38.295984+00	\N	f
+362	leigharose8@gmail.com	Leigha	Bone	\N	4803359908	2019-06-02 07:56:36.46507+00	\N	f
+363	sheenalya@gmail.com	Sheena	McArthur	\N	6022956338	2019-06-02 22:38:58.377658+00	\N	f
+364	heyitsdani@gmail.com	Danielle	Kelley	\N	6236928316	2019-06-05 17:53:30.604055+00	\N	f
+365	rebekahbohucki@gmail.com	Rebekah	Bohucki	\N	4803309248	2019-06-05 18:33:27.230665+00	\N	f
+366	jacquelyn_flindt@yahoo.com	Jacquelyn 	Hall	\N	480-332-4830	2019-06-05 20:32:36.099052+00	\N	f
+367	sarina.armstrong82@gmail.com	Sarina	Armstrong	\N	8014944526	2019-06-06 02:06:08.160865+00	\N	f
+368	giddianiparra@gmail.com	Carolina 	Parra	\N	4804069950	2019-06-06 22:24:39.04308+00	\N	f
+369	porter.emilyr@gmail.com	Emily	Porter	\N	4804400578	2019-06-08 20:53:26.704178+00	\N	f
+370	juliamhildebrandt@gmail.com	Julia	Hildebrandt	\N	12083516857	2019-06-10 20:04:08.526652+00	\N	f
+371	cara_babyy652@yahoo.com	Cara	Newell	\N	4806000339	2019-06-11 21:23:53.713439+00	\N	f
+372	cindy.yaa@gmail.com	Cindy	Anthony	\N	8014272913	2019-06-13 01:09:16.854422+00	\N	f
+373	alyssaswedberg@yahoo.com	Alyssa	Swedberg	\N	4805282934	2019-06-13 02:58:11.274953+00	\N	f
+374	drg2b@hotmail.com	Crystal	Gauef	\N	4809810412	2019-06-15 18:53:50.626819+00	\N	f
+375	maddirey@gmail.com	Maddi	Harwood	\N	9097625600	2019-06-17 22:57:04.302345+00	\N	f
+376	jdeanessa@gmail.com	dean	essa	\N	4802330737	2019-06-18 20:38:28.787407+00	\N	f
+377	allisonctyler@gmail.com	Allie	Tyler	\N	4804041343	2019-06-19 22:12:41.034231+00	\N	f
+378	melalonzo@yahoo.com	Melanie	Alonzo	\N	9288121843	2019-06-19 23:28:58.298461+00	\N	f
+379	lisarockelmann@hotmail.com	Lisa	Goodman	\N	3125150305	2019-06-20 16:33:31.814106+00	\N	f
+380	boycemakayla1@gmail.com	Makayla	Boyce	\N	4806467921	2019-06-21 18:13:07.952544+00	\N	f
+381	karaandtal@gmail.com	Kara	Ryan	\N	4805705272	2019-06-21 21:06:02.870399+00	\N	f
+382	baileyhulin@gmail.com	Bailey	Larsen	\N	5207095468	2019-06-24 03:20:06.04739+00	\N	f
+383	brina4769@yahoo.com	Sabrina	Rowan	\N	6025716448	2019-06-24 18:09:27.716476+00	\N	f
+416	chickletm.mondejar@gmail.com	Chicklet	Mondejar	\N	6025240865	2019-06-27 22:49:47.689418+00	\N	f
+417	francesmae.mondejar@gmail.com	Chicklet	Mondejar	\N	6025240865	2019-06-27 22:56:24.880229+00	\N	f
+418	karenberhe24@gmail.com	Karen	Palafox	\N	4803714194	2019-06-29 00:16:38.00675+00	\N	f
+419	cdepue1@hotmail.com	Caitlyn	Pack 	\N	4804311479	2019-07-01 02:27:57.809757+00	\N	f
+420	marissamorse1@gmail.com	Marissa	Morse	\N	8186343234	2019-07-02 18:16:43.335321+00	\N	f
+421	cubbieclementi@hotmail.com	Cubbie	Clementi	\N	7192693751	2019-07-02 18:20:31.474211+00	\N	f
+422	brandy.valen@gmail.com	Brenda	Roman	\N	4802849119	2019-07-05 19:48:35.809022+00	\N	f
+423	altymelissa@gmail.com	Melissa	Althaus	\N	480-415-9259	2019-07-06 20:20:28.553484+00	\N	f
+424	acvtystdn2763@gmail.com	Bernard	Lim	\N	4807876521	2019-07-15 17:23:25.246852+00	\N	f
+425	davidsalinas3@hotmail.com	David	Salinas III	\N	9288123133	2019-07-31 20:29:11.240011+00	\N	f
+426	kamirandall@hotmail.com	Kami	Montero	\N	480-298-3096	2019-08-03 18:32:53.593369+00	\N	f
+427	heidiemett@gmail.com	Heidi	Emett	\N	8015139677	2019-08-06 19:44:12.872581+00	\N	f
+428	taryn00021@gmail.com	Taryn	Pratt	\N	7147286040	2019-08-12 21:00:28.347493+00	\N	f
+461	sherinecole84@gmail.com	Sherine	Cole	\N	6197577234	2019-08-13 18:15:17.381821+00	\N	f
+462	ashley@ashleyhatch.com	Ashley	Young	\N	4802051636	2019-08-15 07:52:21.441547+00	\N	f
+463	courtneybiddle@gmail.com	Courtney	Miller	\N	2193149518	2019-08-19 17:02:45.771876+00	\N	f
+464	estherroo@hotmail.com	esther	seibold	\N	2082199138	2019-12-13 19:25:01.638332+00	\N	f
+465	kelseyvjackson@gmail.com	Kelsey	Jackson	\N	4803536061	2020-01-08 23:10:27.94239+00	\N	f
+498	sammybonfanti@gmail.com	sam	bonfanti	\N	239-565-7035	2020-01-16 21:24:56.484346+00	\N	f
+499	shan.alesbury@gmail.com	Shannon	Alesbury	\N	4803920765	2020-01-22 13:07:08.653671+00	\N	f
+500	celboy51@gmail.com	Ciara	Salazar	\N	6027524688	2020-01-25 14:37:14.382625+00	\N	f
+501	danisb0603@gmail.com	Daniele	Bradford	\N	8014005353	2020-01-25 21:41:43.688131+00	\N	f
+502	rach.willett@gmail.com	Rachel	Willett	\N	2085146047	2020-01-25 23:21:16.981658+00	\N	f
+503	loisappleofmyeye7@gmail.com	Eunice	Gaddi	\N	7145532632	2020-01-27 17:44:43.87691+00	\N	f
+504	vidana.veronica@gmail.com	Veronica	Perez	\N	6026435147	2020-02-01 18:23:48.647502+00	\N	f
+505	britaball@mac.com	Brita	Harper	\N	4802052132	2020-02-12 20:52:52.09009+00	\N	f
+506	ldnelson90@gmail.com	Lisa	Nelson	\N	4802177452	2020-02-13 01:40:19.186533+00	\N	f
+507	kyliekfreeman@gmail.com	Kylie 	Sherwood	\N	480-528-8728	2020-02-13 23:30:15.929377+00	\N	f
+508	crpolo12@gmail.com	Cassie	Peters	\N	4805443888	2020-02-14 01:14:10.910268+00	\N	f
+509	nikkiow7@gmail.com	Nikki	Owens	\N	4802295932	2020-02-14 15:55:37.809689+00	\N	f
+510	samanthacate88@gmail.com	Samanyja	Davis	\N	4806887904	2020-02-14 17:15:46.451032+00	\N	f
+511	cassidylarson6@gmail.com	Cassidy	Dalley	\N	3038770697	2020-02-17 02:14:25.320589+00	\N	f
+512	camijackson07@gmail.com	Camilyn	Tinoco	\N	4805606172	2020-02-18 11:28:29.625385+00	\N	f
+513	brenjay95@gmail.com	Brena	Love	\N	4802681927	2020-02-18 19:55:55.283164+00	\N	f
+514	racheljones08@gmail.com	Rachel	Hatch	\N	4805609731	2020-02-19 19:18:01.405009+00	\N	f
+515	david.jacobson211@gmail.com	David and Kirbie	Jacobson	\N	4806122497	2020-02-20 02:12:07.37379+00	\N	f
+516	aubreemclelland@gmail.com	Aubree	McLelland	\N	4806210408	2020-02-20 22:48:24.782402+00	\N	f
+517	ashleybbiddle@gmail.com	Ashley	Biddle 	\N	14805705665	2020-02-21 01:18:02.493485+00	\N	f
+518	jamiebigelowaz@gmail.com	Jamie	Bigelow	\N	4802361072	2020-02-21 02:23:50.758069+00	\N	f
+519	haleighywilliams@gmail.com	Haleigh	Bigelow	\N	4805800011	2020-02-24 19:11:20.23021+00	\N	f
+520	jaromwall@gmail.com	Jarom	Wall	\N	480-729-4947	2020-02-25 15:28:56.172931+00	\N	f
+521	jadepetterborg@gmail.com	Jade	Petterborg	\N	4896127975	2020-02-25 15:39:47.852449+00	\N	f
+522	azqt1804@yahoo.com	Jenny	Aston	\N	6232254291	2020-02-25 16:27:58.583418+00	\N	f
+523	trey@pestcontrolguaranteed.com	amber	boyster	\N	480-734-0909	2020-02-25 17:00:23.923099+00	\N	f
+524	meghan.coleen@gmail.com	Meghan	Elms	\N	5056107327	2020-02-26 00:40:07.463378+00	\N	f
+525	rosiegibb@hotmail.com	Rosie	Gibb	\N	6053760274	2020-02-26 02:52:08.348502+00	\N	f
+526	chelsea.wardrop@gmail.com	Chelsea	Wardrop	\N	8012597396	2020-02-26 14:02:46.126726+00	\N	f
+527	thebergs2017@gmail.com	Kyle	Berg	\N	6026775762	2020-02-26 15:41:56.314698+00	\N	f
+528	shaena2211@gmail.com	Shaena	Lutz	\N	6024103062	2020-02-27 00:31:40.784417+00	\N	f
+529	bryleefrazier@gmail.com	Brylee	Helm	\N	4803345357	2020-02-27 23:22:09.597332+00	\N	f
+530	nicolewall2003@yahoo.com	Nicole	Cooke	\N	6024510406	2020-02-28 04:32:36.853926+00	\N	f
+531	audreyg421@hotmail.com	Audrey	Gorence	\N	4803521641	2020-02-28 15:04:50.386995+00	\N	f
+532	westonfrazier22@yahoo.com	Natalie	Frazier	\N	4804664552	2020-02-28 20:44:36.261644+00	\N	f
+533	sorensenfamily1@gmail.com	Bailie	Sorensen	\N	4808239373	2020-03-01 23:22:46.847051+00	\N	f
+534	travsungood@gmail.com	Sunni 	Goodman	\N	6029999795	2020-03-02 04:20:54.983724+00	\N	f
+535	courtney.b.little@gmail.com	Courtney	Little	\N	8015999548	2020-03-02 04:44:28.907258+00	\N	f
+536	ljhellner@cox.net	Lindsey	Hellner	\N	6025418616	2020-03-03 14:30:30.325917+00	\N	f
+537	kyleetaylor87@gmail.com	Kylee 	Taylor 	\N	4802934032	2020-03-03 18:45:17.467335+00	\N	f
+538	cieraflake34@gmail.com	Ciera	Flake	\N	480-516-4015	2020-03-03 18:51:56.029293+00	\N	f
+539	shanahyland@hotmail.com	Shana	Hyland	\N	9283869219	2020-03-03 22:44:06.765817+00	\N	f
+540	elizabethslechta@gmail.com	Elizabeth	Slechta	\N	6028810516	2020-03-04 19:23:13.681071+00	\N	f
+541	alli.breinholt@gmail.com	Alli	Breinholt	\N	4807178237	2020-03-05 03:52:10.505739+00	\N	f
+542	hibubbles77@hotmail.com	Heidi	Smith	\N	6024216442	2020-03-05 16:43:02.369407+00	\N	f
+543	karrinfoster@gmail.com	Karrin	Foster	\N	480-628-7625	2020-03-05 22:15:54.729745+00	\N	f
+544	stephccox88@gmail.com	Stephanie	Cox	\N	4802207442	2020-03-06 05:53:49.701769+00	\N	f
+545	carmensue@cox.net	Carmen	Gross	\N	4802291319	2020-03-08 18:54:17.947689+00	\N	f
+546	sheliseray@gmail.com	Shelise	Raymond	\N	4802625551	2020-03-09 19:32:05.038531+00	\N	f
+547	amandamhansen13@gmail.com	Amanda	Hansen	\N	8014287307	2020-03-09 22:18:29.920168+00	\N	f
+548	cari3_3@yahoo.com	Carri	Obrycki	\N	7633604381	2020-03-09 22:47:08.301022+00	\N	f
+549	raraqt@juno.com	Andrea	Phillips	\N	6023099887	2020-03-10 15:05:36.186045+00	\N	f
+550	kah_andace@yahoo.com	Candace	Shiflet	\N	14802626186	2020-03-11 05:20:27.081936+00	\N	f
+551	megmarieclifford@gmail.com	Meg	Clifford	\N	4806286806	2020-03-11 15:15:10.344378+00	\N	f
+552	happyhalls05@gmail.com	Erika	Halls	\N	6023703674	2020-03-17 22:55:52.105193+00	\N	f
+553	ashleyborden10@gmail.com	Ashley	Borden	\N	4806958023	2020-04-06 20:15:21.718318+00	\N	f
+554	bljenkins07@yahoo.com	Breck	Bawden	\N	480-341-5708	2020-04-21 19:06:52.787948+00	\N	f
+555	aexis.gremillion@gmail.com	Alexis	Gremillion	\N	4802780704	2020-05-01 16:10:12.654232+00	\N	f
+556	brookelesueur@gmail.com	Brooke	LeSueur	\N	4807031714	2020-05-01 20:15:15.962272+00	\N	f
+557	briannampeters@gmail.com	9096489140	9096489140	\N	9096489140	2020-05-03 01:16:21.03699+00	\N	f
+558	reidhead22@gmail.com	Morgan	Matson	\N	4803839535	2020-05-05 22:29:20.686029+00	\N	f
+559	chbreinholt@gmail.com	Hailey	Breinholt	\N	4803186407	2020-05-06 02:19:46.447389+00	\N	f
+560	heatherosheafslk@icloud.com	Heather	Falk	\N	4257839460	2020-05-06 18:49:28.720178+00	\N	f
+561	kyrbirae@gmail.com	Kyrbi	Langston	\N	4806944588	2020-05-07 20:47:13.489326+00	\N	f
+562	epilonmjp@gmail.com	Eric 	Pilon	\N	4808618948	2020-05-08 22:13:21.180623+00	\N	f
+563	sarah.m.welch@hotmail.com	Sarah	Jones	\N	4805288802	2020-05-09 16:04:10.113044+00	\N	f
+564	blairehunt88@gmail.com	Blaire	Richardson	\N	4807519059	2020-05-10 19:03:11.458799+00	\N	f
+565	paigehall123@gmail.com	Paige	Hall	\N	702-824-5233	2020-05-11 15:49:39.489085+00	\N	f
+566	auntielindsay@gmail.com	Lindsay	Kesler	\N	4804333835	2020-05-12 04:06:08.322854+00	\N	f
+567	emilycarolyn7@yahoo.com	Emily	Lebaron	\N	8013721072	2020-05-13 13:20:39.098741+00	\N	f
+568	erica.lebaron@gmail.com	Erica	LeBaron	\N	8708070212	2020-05-13 13:27:15.084816+00	\N	f
+569	piggott.lauren@gmail.com	Lauren	Naylor	\N	801-369-3882	2020-05-16 17:24:53.441815+00	\N	f
+570	sydniesuzanne@yahoo.com	Sydnie 	Decker 	\N	6027217383	2020-05-17 04:46:10.428684+00	\N	f
+571	stephanie.a.streit@gmail.com	STEPHANIE	STREIT	\N	6027433651	2020-05-17 17:10:02.63898+00	\N	f
+572	shaylastarr@gmail.com	Shayla	Trickey	\N	480-993-8923	2020-05-18 17:11:33.536189+00	\N	f
+573	lovelylittlerants@gmail.com	Candace	Shiflet	\N	4802626186	2020-05-20 17:38:16.09906+00	\N	f
+574	vivienelson1@gmail.com	Vivie 	Nelson 	\N	480-459-1281	2020-05-20 17:44:44.103+00	\N	f
+575	jensenjanad@gmail.com	Jana	Olwine	\N	5134614607	2020-05-20 19:19:01.111884+00	\N	f
+576	cordaestradling@gmail.com	Cordae	Stradling	\N	9282433842	2020-05-20 23:45:08.301194+00	\N	f
+577	chumphrey@sunvalleycc.com	Chelsea	Humphrey	\N	6026800351	2020-05-22 02:48:39.578262+00	\N	f
+578	brittaniwinterton@gmail.com	Brittani	Alcantar	\N	4808188522	2020-05-24 18:56:05.041625+00	\N	f
+579	brit.frasier@aol.com	Brittney	Frasier	\N	6023036235	2020-05-26 05:00:57.466406+00	\N	f
+580	mcad1313@gmail.com	Heidi	Moreno	\N	4804352532	2020-05-26 15:14:39.791087+00	\N	f
+581	taylilly5@gmail.com	Taylor	Lilly	\N	480-559-3179	2020-05-26 18:34:25.326571+00	\N	f
+582	brittarenae@hotmail.com	Britta	Weiss	\N	801-636-9193	2020-05-27 02:34:27.536364+00	\N	f
+583	jkaypacker@gmail.com	Jennifer	Packer	\N	4805802570	2020-05-27 20:54:56.562542+00	\N	f
+584	anbates83@gmail.com	Andrea	Bates	\N	4802036426	2020-05-27 21:44:27.991763+00	\N	f
+585	mrs.laurenhollis@gmail.com	Lauren	Hollis	\N	6023172416	2020-05-28 13:55:32.115325+00	\N	f
+586	madisenaustin@yahoo.com	Madisen	Helm	\N	4807738922	2020-05-31 02:25:01.234076+00	\N	f
+587	emailhillarie@yahoo.com	Hillarie	Price	\N	480-747-2449	2020-06-01 02:29:03.404242+00	\N	f
+588	mkeisling13@hotmail.com	Megan	Santos	\N	9286601645	2020-06-01 17:37:37.925912+00	\N	f
+589	lexiihamel@gmail.com	Lexi	Hamel	\N	4803381525	2020-06-01 20:20:03.61555+00	\N	f
+590	candice.putzig@gmail.com	Candice	Putzig	\N	9288122189	2020-06-01 20:35:22.571246+00	\N	f
+591	office@velocityac.net	AMBER	AUBUCHON	\N	602-618-1867	2020-06-02 02:27:33.015574+00	\N	f
+592	jetbozeman@gmail.com	Jeanette	Bozeman	\N	4802006125	2020-06-02 03:06:04.232466+00	\N	f
+593	paigeka2191@yahoo.com	paige	kearl	\N	4803400802	2020-06-02 05:13:28.568123+00	\N	f
+594	kblodgett09@gmail.com	Kimberly	McLaughlin	\N	4809805407	2020-06-03 15:23:56.050112+00	\N	f
+595	sondralarcher@gmail.com	Sondra	Archer	\N	3149567783	2020-06-03 18:38:05.242866+00	\N	f
+596	beckyleonard93@gmail.com	Rebekah	Stahle	\N	4803388274	2020-06-05 02:38:59.450736+00	\N	f
+597	kellyfaulkner23@gmail.com	Kelly	Faulkner	\N	4803382139	2020-06-09 21:25:30.844548+00	\N	f
+598	mandiravsten@gmail.com	Mandi	Ravsten	\N	6784882442	2020-06-10 23:34:47.896402+00	\N	f
+599	cristenkloft@yahoo.com	Cristen	kloft	\N	4807341078	2020-06-11 01:16:20.827592+00	\N	f
+600	acgarrison22@gmail.com	Andrea	Garrison	\N	6028324302	2020-06-11 18:15:57.838659+00	\N	f
+601	lynsieroo@hotmail.com	Lynsie	Standage	\N	4802520092	2020-06-11 21:25:33.018124+00	\N	f
+602	estelagzuniga@gmail.com	Estela	Rayburn	\N	480215-6662	2020-06-12 02:35:59.43945+00	\N	f
+603	racheldrake092@yahoo.com	Rachel	Lindsay	\N	9516607335	2020-06-12 16:29:18.092562+00	\N	f
+604	j.norman1975@yahoo.com	Jennifer	Norman	\N	4803525501	2020-06-18 17:16:51.214675+00	\N	f
+605	brandithwebb@gmail.com	Brandi	Webb	\N	4805102179	2020-06-26 21:36:15.101662+00	\N	f
+606	teal.rutledge@yahoo.com	Teal	Lewis	\N	4805800566	2020-06-29 22:19:53.652238+00	\N	f
+607	ashwheeler47@gmail.com	Ashley	Wheeler	\N	4803300046	2020-06-30 04:51:18.051618+00	\N	f
+608	floresmish@gmail.com	Michelle	Zeien	\N	4803344127	2020-07-06 16:10:43.904841+00	\N	f
+609	iris.r.mendoza@gmail.com	Iris	Mendoza	\N	6023637967	2020-07-08 03:50:11.222472+00	\N	f
+610	amydmcdowell@gmail.com	Amy	McDowel	\N	4805849553	2020-07-15 18:49:18.753909+00	\N	f
+611	kelsejephcote@gmail.com	Kelsey	Ironside	\N	6022067793	2020-07-22 05:10:16.489269+00	\N	f
+612	mmnelson115@gmail.com	Maren	Nelson	\N	8013671451	2020-08-27 18:39:41.313997+00	\N	f
+613	lberkebill@gmail.com	Lydia	Berkebill	\N	4806844609	2020-08-28 17:39:53.965678+00	\N	f
+614	k.k.alatini@gmail.com	Kathleen	Cagle	\N	4809309292	2020-10-09 16:46:31.343451+00	\N	f
+615	abbey002@gmail.com	Abbey	Lindblom	\N	480-993-6381	2021-03-08 04:16:03.979447+00	\N	f
+616	alyssa.prewitt@gmail.com	Alyssa	Prewitt	\N	14806201396	2021-03-08 13:57:10.362574+00	\N	f
+617	sabrina.heaps@gmail.com	Sabrina	Heaps	\N	8018850960	2021-03-08 14:32:40.345381+00	\N	f
+618	tarabreann@gmail.com	Tara	Hymas	\N	4802363792	2021-03-08 14:41:41.530307+00	\N	f
+619	staceyahamblin@gmail.com	Stacey	Hamblin	\N	4802410108	2021-03-08 16:57:55.579925+00	\N	f
+620	wendytrue7@gmail.com	Wendy	Thompson	\N	4802044168	2021-03-08 17:54:11.747163+00	\N	f
+621	sorensenlacey@hotmail.com	Lacey	Berkley	\N	7608282565	2021-03-08 18:04:56.450959+00	\N	f
+622	csanford7@gmail.com	Chelsey	Sanford	\N	8013907133	2021-03-08 18:52:44.617366+00	\N	f
+623	ladyplz@gmail.com	Christi	Pobst	\N	7143309259	2021-03-08 19:05:55.967254+00	\N	f
+624	alirbrown3@gmail.com	Alison 	Brown 	\N	6023326196	2021-03-08 19:40:01.279462+00	\N	f
+625	michellemathews28@gmail.com	Michelle	Mathews	\N	4804501404	2021-03-08 19:56:43.96641+00	\N	f
+626	kara.holyoak@gmail.com	Kara	Holyoak	\N	480-294-5262	2021-03-08 20:10:10.693083+00	\N	f
+627	candaceshiflet@gmail.com	Candace	Shiflet	\N	14802626186	2021-03-08 20:17:51.670192+00	\N	f
+628	salduttijessica@gmail.com	Jessica 	Saldutti	\N	4803268606 	2021-03-08 20:21:04.975837+00	\N	f
+629	courtneywelch16@icloud.com	Courtney 	Welch 	\N	4802923247	2021-03-08 20:45:02.692308+00	\N	f
+630	moniekramsey@gmail.com	Moniek	Ramsey	\N	4803351344	2021-03-08 21:36:29.101215+00	\N	f
+631	russell.katie2@gmail.com	Katie	Hardison	\N	9283226776	2021-03-08 22:08:49.902816+00	\N	f
+632	jill.everton@cox.net	Jill	Everton	\N	480-241-6077	2021-03-08 22:55:07.558568+00	\N	f
+633	rachelwestergard@gmail.com	Rachel	Westergard	\N	317-408-0108	2021-03-08 23:47:47.774561+00	\N	f
+634	sabessey@mpsaz.org	Stephanie	Bessey	\N	4802507914	2021-03-09 17:38:06.728319+00	\N	f
+635	tealsnowblog@gmail.com	Teal	Wall	\N	4802319533	2021-03-09 20:15:31.230922+00	\N	f
+636	andreawebb07@gmail.com	Andrea	Webb	\N	4806204859	2021-03-09 20:29:08.853189+00	\N	f
+637	nicolestover27@gmail.com	Nicole	Stover	\N	6232613480	2021-03-09 21:03:56.417659+00	\N	f
+638	hawksmonica89@gmail.com	Monica	Hawks	\N	9253608848	2021-03-09 21:29:48.316609+00	\N	f
+639	haleyevenn@gmail.com	Haley	Fletcher	\N	4807658496	2021-03-10 01:34:59.764065+00	\N	f
+640	marenhnelson@gmail.com	Maren	Nelson	\N	8013671451	2021-03-10 02:44:58.503343+00	\N	f
+641	hildebrandts2005@gmail.com	Julia	Hildebrandt	\N	2083516857	2021-03-10 04:08:23.081699+00	\N	f
+642	kelseyjephcote@gmail.com	Kelsey	Ironside	\N	6022067793	2021-03-10 04:09:14.282268+00	\N	f
+643	kaitlynwillis@gmail.com	Kaitlyn	Winward	\N	4804153277	2021-03-10 17:15:49.626343+00	\N	f
+644	katiegulb@gmail.com	Katie	Gulbrandsen	\N	480-215-1593	2021-03-10 18:51:01.079425+00	\N	f
+645	cinn005@gmail.com	Cindy	Ortiz	\N	8056300866	2021-03-10 20:06:58.391669+00	\N	f
+646	shayla.urling@gmail.com	Shayla	Urling	\N	4802750783	2021-03-10 22:31:38.548227+00	\N	f
+647	andreahayes.dance@gmail.com	Andrea	Hayes	\N	9282370811	2021-03-11 01:34:40.28754+00	\N	f
+648	sirrahakire@gmail.com	Erika	Harris	\N	4806282170	2021-03-11 13:13:47.324902+00	\N	f
+649	hannahebasile@gmail.com	Hannah	Kowitz	\N	2067143811	2021-03-12 01:17:09.52908+00	\N	f
+650	julielenhart@hotmail.com	Julie	DiFrancesco	\N	6026182149	2021-03-12 23:22:09.549741+00	\N	f
+651	cherisedpalmer@gmail.com	Cherise	Palmer	\N	4804505031	2021-03-13 18:52:34.267861+00	\N	f
+652	taybrown10@gmail.com	Taylor	Boyd	\N	4803388423	2021-03-13 22:00:13.705089+00	\N	f
+653	rachjjarvis@gmail.com	Rachel	Jarvis	\N	4802702792	2021-03-13 22:43:58.640732+00	\N	f
+654	kamiller108@gmail.com	Kylee	Miller	\N	480-510-6930	2021-03-14 03:50:15.472708+00	\N	f
+655	jasonalston61@gmail.com	Jason	Alston	\N	4807219433	2021-03-14 16:32:48.925926+00	\N	f
+656	desi_lu3232@yahoo.com	Desiree	Hunter	\N	6238668195	2021-03-15 21:24:24.38281+00	\N	f
+657	clarissa1769@gmail.com	Clarissa	Neal	\N	4802924356	2021-03-15 21:31:24.986466+00	\N	f
+689	anniebrimley@gmail.com	Annie	Brimley	\N	4802428664	2021-03-17 19:34:56.324331+00	\N	f
+690	kaleyplowman@gmail.com	Kaley	Hatfield 	\N	4803131545	2021-03-17 22:37:35.986197+00	\N	f
+691	michaelcote@live.com	Michael	Cote	\N	4259851777	2021-03-17 22:42:15.252019+00	\N	f
+692	enearly@gmail.com	Erica	Early	\N	6023307703	2021-03-17 23:54:34.747153+00	\N	f
+693	acunalauren@hotmail.com	Lauren	Acuna	\N	9098092316	2021-03-18 20:57:08.515285+00	\N	f
+694	brittany.duncan@cox.net	Brittany	Edwards	\N	4802130294	2021-03-19 19:22:14.397189+00	\N	f
+695	natalie.clouse14@gmail.com	Natalie	Clouse	\N	4804331828	2021-03-20 20:35:27.160295+00	\N	f
+696	lizgwillis@gmail.com	Liz	Willis	\N	4805864824	2021-03-21 23:23:26.115971+00	\N	f
+697	the.riana.grace0@gmail.com	Riana	Brandon	\N	6023977968	2021-03-22 02:54:05.344887+00	\N	f
+698	hannah.marchant@gmail.com	Hannah	Lamb	\N	8018503162	2021-03-22 16:52:45.906824+00	\N	f
+699	kkweathers@icloud.com	Kara	Weathers	\N	4699642504	2021-03-23 15:43:56.677416+00	\N	f
+700	creysmith@gmail.com	Chantelle	Rey-Smith	\N	6029041261	2021-03-24 21:12:37.474886+00	\N	f
+701	shelbydangelo@gmail.com	Shelby	D'Angelo	\N	7859171454	2021-03-25 15:08:31.569016+00	\N	f
+702	jweathersfilm@gmail.com	Luke	Weathers	\N	4803923306	2021-03-25 20:32:21.067375+00	\N	f
+703	tambam412@gmail.com	Tamara	Hilton	\N	4803093756	2021-03-26 04:33:51.376171+00	\N	f
+704	clovergirl89@hotmail.com	Aubree	Banfield	\N	4807073896	2021-03-26 21:38:49.516279+00	\N	f
+705	brendanandkelsey22@gmail.com	Kelsey	Skinner	\N	6025053829	2021-03-27 01:42:00.913763+00	\N	f
+706	ali00jones@gmail.com	Ali	Jones	\N	4802901439	2021-03-27 20:06:33.190414+00	\N	f
+707	bgale718@gmail.com	Brittany	Gale	\N	4805400486	2021-03-28 17:35:10.757137+00	\N	f
+708	catnip_1029@yahoo.com	Cassie	Bigler	\N	4803163034	2021-03-30 02:32:36.18207+00	\N	f
+709	sheliseikari@gmail.com	Shelise	Pharis	\N	8082236430	2021-03-30 06:34:20.751988+00	\N	f
+710	michellegraf1@hotmail.com	Michelle	Graf	\N	4807345376	2021-03-30 16:39:54.946219+00	\N	f
+711	jcmpink@gmail.com	Jacquie	Valentine	\N	4805283991	2021-03-30 20:43:25.799694+00	\N	f
+712	spencermksmith@gmail.com	Spencer	Smith	\N	480-570-4005	2021-03-30 22:50:54.555309+00	\N	f
+713	masmith256@gmail.com	McKenna 	Smith	\N	480-378-7787	2021-03-30 22:51:39.828582+00	\N	f
+714	kinserelli@gmail.com	Kinsi	Albach	\N	4807972495	2021-03-31 01:27:00.909571+00	\N	f
+715	lisanatoruganarvaez@gmail.com	Lisana 	Narvaez	\N	4806167115	2021-03-31 04:10:00.610342+00	\N	f
+716	melaniespilo@hotmail.com	Melanie 	Spilo	\N	4802751977	2021-03-31 20:41:04.244403+00	\N	f
+717	help_me12@hotmail.com	Nicole 	Mclean 	\N	9283808087	2021-03-31 21:56:45.907914+00	\N	f
+718	mhornbarger@yahoo.com	Miriam	Hornbarger	\N	4806006329	2021-04-01 19:40:42.532773+00	\N	f
+719	matthamada@gmail.com	Matt	Hamada	\N	5202753040	2021-04-01 22:58:41.477358+00	\N	f
+720	daniele.carnley@gmail.com	Daniele 	Carnley	\N	4804179334	2021-04-02 21:39:58.195491+00	\N	f
+721	ashley.a.collins89@gmail.com	Ashley	Collins	\N	9283696492	2021-04-04 04:22:06.389272+00	\N	f
+722	ashleybryans17@gmail.com	Ashley	Bryans	\N	6194020982	2021-04-04 18:21:49.994488+00	\N	f
+723	leaningonfaith14@gmail.com	LaToya	Wilson	\N	2145645841	2021-04-05 03:44:19.339889+00	\N	f
+724	shannonspanglercpa@gmail.com	Shannon	Spangler	\N	19704202404	2021-04-05 16:45:45.583379+00	\N	f
+725	sallen08@gmail.com	Stacy	Allen	\N	4804524486	2021-04-05 19:20:27.338079+00	\N	f
+726	tahiticapriti@hotmail.com	Capri	Goudy	\N	4802744632	2021-04-06 04:37:38.818328+00	\N	f
+727	slan222@aol.com	Shannon	Payne	\N	7602242639	2021-04-06 19:59:21.691969+00	\N	f
+728	bhebner904@gmail.com	Becky	Hebner	\N	6025704133	2021-04-06 22:36:20.093752+00	\N	f
+729	lawnblower@hotmail.com	Keri	Mcwhorter	\N	4802413494	2021-04-07 01:31:50.958641+00	\N	f
+730	courtneyr4est@gmail.com	Courtney	Forrest	\N	4802259376	2021-04-07 04:39:53.882046+00	\N	f
+731	rspringfield321@gmail.com	Rachel	Springfield	\N	4807975744	2021-04-07 06:40:40.137036+00	\N	f
+732	sarnow527@gmail.com	Shauri	Stradling	\N	4803229874	2021-04-07 18:16:41.023573+00	\N	f
+733	swald.waldie@gmail.com	Sydney	Schaub	\N	4803209580	2021-04-07 22:36:39.334103+00	\N	f
+734	alyssaosmun@gmail.com	Alyssa	Osmun	\N	4802988997	2021-04-08 17:12:29.237307+00	\N	f
+735	draftmaster@cox.net	Chris	Baker	\N	14802397890	2021-04-08 20:02:28.745801+00	\N	f
+768	maddogbiggs@gmail.com	Madi	McBride	\N	4806038035	2021-04-09 19:27:20.309291+00	\N	f
+769	mccowna1@gmail.com	Amy	McCown	\N	4809800089	2021-04-10 17:45:33.544162+00	\N	f
+770	americaesparza1984@gmail.com	America	Esparza	\N	4802821265	2021-04-10 20:30:38.951221+00	\N	f
+771	torreyquintana@yahoo.com	Torrey	Quintana	\N	4805604393	2021-04-11 23:17:41.551712+00	\N	f
+772	aewpetersen@gmail.com	Amber 	Petersen 	\N	4802660732	2021-04-12 14:09:19.261498+00	\N	f
+773	tiffanykimble@gmail.com	Tiffany	Kimble	\N	8012430202	2021-04-12 17:36:42.057976+00	\N	f
+774	heatherspores@yahoo.com	Heather	Kriens	\N	4802733416	2021-04-19 19:50:06.629569+00	\N	f
+775	pom9810@aol.com	Janis	Kahldon	\N	4809803117	2021-04-21 21:37:38.978671+00	\N	f
+776	kristina.king321@gmail.com	Kristi	King	\N	4803101099	2021-04-24 05:23:34.556743+00	\N	f
+777	caralina3109@gmail.com	Caraline	Williams	\N	8329548716	2021-04-26 01:52:15.01576+00	\N	f
+778	pbcstephy@gmail.com	Stephanie	Bessey	\N	480-250-7914 	2021-04-27 01:46:50.119619+00	\N	f
+779	laurenelizabethdeering@gmail.com	Lauren	Deering	\N	4802782173	2021-04-27 15:36:14.793917+00	\N	f
+780	kwpacker22@gmail.com	Kelly	Packer	\N	4808009322	2021-04-29 03:53:41.213323+00	\N	f
+781	homesbyjill@cox.net	Jill	Damyanovich	\N	480-215-0973	2021-04-30 23:46:23.75941+00	\N	f
+782	kirynjudd@gmail.com	Kiryn 	Arnow	\N	4808496407	2021-05-01 00:36:35.121641+00	\N	f
+783	qtrinidad377@gmail.com	shirley	Trinidad	\N	19719983668	2021-05-02 03:25:44.346497+00	\N	f
+784	kelliecsnow@gmail.com	Kellie	Snow	\N	3854246366	2021-05-05 13:35:04.684784+00	\N	f
+785	lindsayearl@outlook.com	Lindsay	Earl	\N	8018893053	2021-05-05 19:58:30.973302+00	\N	f
+786	danirmartin26@gmail.com	Danielle	Neff	\N	4802782832	2021-05-06 22:29:17.248919+00	\N	f
+787	brookietrout@msn.com	Ashley	Wheeler	\N	14803300046	2021-05-06 23:43:57.711829+00	\N	f
+788	bocksheryl@gmail.com	Sherry	Bock	\N	6234149058	2021-05-09 20:24:03.109207+00	\N	f
+789	kelsieegan@gmail.com	Kelsie	Egan	\N	8013107436	2021-05-14 23:40:55.708657+00	\N	f
+790	black.alexia15@gmail.com	Alexia	Black	\N	4803709852	2021-05-18 01:52:04.974502+00	\N	f
+791	alyssa.zeigler92@gmail.com	Alyssa	Zeigler	\N	4803939799	2021-05-20 22:13:35.182871+00	\N	f
+792	dlarsen2@cox.net	Dianna	Larsen	\N	6024327944	2021-05-21 16:31:23.314332+00	\N	f
+793	amelialarsen2012@gmail.com	Amelia	Larsen	\N	4802364335	2021-05-21 16:49:15.301475+00	\N	f
+794	tsdickerson88@gmail.com	Tara	Dickerson	\N	480-241-9898	2021-05-23 19:21:15.593812+00	\N	f
+795	alexi.weinberger@gmail.com	Alexis	Weinberger	\N	4806502271	2021-05-25 03:01:59.507257+00	\N	f
+796	dpcog04@gmail.com	Pam	Coughlin	\N	8154945406	2021-05-25 21:57:35.748881+00	\N	f
+797	all4myluv143@gmail.com	Flisha	Palma	\N	6026817829	2021-05-26 04:04:26.95319+00	\N	f
+798	esmetweathers@gmail.com	Esme	Weathers	\N	4803100697	2021-05-26 20:57:11.721611+00	\N	f
+799	keenakeena1@gmail.com	keena	peery	\N	8016154043	2021-05-27 19:56:00.870236+00	\N	f
+800	jessicacbera@gmail.com	Jessica	Bera	\N	4807346982	2021-05-27 20:16:19.8336+00	\N	f
+801	holly00marie@gmail.com	Holly 	Smith	\N	2084032036	2021-05-27 21:48:30.912875+00	\N	f
+802	selina.gilbertson@gmail.com	Selina	Gilbertson	\N	9282549585	2021-05-29 22:17:02.888501+00	\N	f
+803	jennw81@gmail.com	Jennifer 	Western 	\N	4805195457	2021-05-31 23:40:03.595246+00	\N	f
+804	jenessatippetts@gmail.com	Jenessa	Tippetts	\N	4806866264	2021-06-01 19:09:46.018033+00	\N	f
+805	eden282001@yahoo.com	Eden	Albrizio	\N	4803352855	2021-06-01 21:36:40.527356+00	\N	f
+806	ascrawford0424@gmail.com	Alan	Crawford	\N	4805933588	2021-06-03 00:46:00.666061+00	\N	f
+807	kimberly.fontes@gmail.com	Kimberly	McDaniel 	\N	4802154718	2021-06-04 04:29:58.529075+00	\N	f
+808	kbacken@gmail.com	Kelly	Backen	\N	6023775565	2021-06-07 20:36:15.911172+00	\N	f
+809	mepitney@gmail.com	Melissa	Pitney	\N	480-748-9165	2021-06-13 04:06:55.190666+00	\N	f
+810	chrisb@haguepartners.com	Chris	Baker	\N	4802397890	2021-06-21 18:16:21.215345+00	\N	f
+811	madison.tabile@yahoo.com	Madison	Tabile	\N	7146045373	2021-06-23 19:56:49.162696+00	\N	f
+812	margaretharris3333@gmail.com	Margaret	Harris	\N	4806044150	2021-07-02 23:48:15.682232+00	\N	f
+813	rimarushanyan@gmail.com	Rima	Burton	\N	4848890307	2021-07-07 01:47:04.370355+00	\N	f
+814	melissann9286@gmail.com	Melissa	Lemire	\N	4802983754	2021-07-08 00:55:58.890508+00	\N	f
+815	melissa@wilkinslearningcenter.com	Melissa	Wostl	\N	4802213043	2021-07-10 20:05:48.461775+00	\N	f
+816	jennifer@wilkinslearningcenter.com	Jennifer	Wilkins	\N	14807891889	2021-07-13 23:01:14.648871+00	\N	f
+817	aliviagonzales22@gmail.com	Alivia 	Gonzales 	\N	801-866-5263	2021-07-17 21:50:21.148962+00	\N	f
+818	s.erin.farnsworth@gmail.com	Erin	Farnsworth	\N	4808610960	2021-07-18 14:49:54.366269+00	\N	f
+819	kmyrabo@gmail.com	Kaiti	Menchaca	\N	6026950614	2021-07-29 03:47:56.337275+00	\N	f
+820	laurajacoby98@gmail.com	4802789745	4802789745	\N	4802789745	2021-08-07 13:41:48.368049+00	\N	f
+821	arielmariej@gmail.com	Ariel	Larkey	\N	4803694337	2021-08-18 13:37:36.772777+00	\N	f
+822	pattylam@ucla.edu	Patty	Lam	\N	6267822586	2021-08-20 07:35:43.658572+00	\N	f
+131	hannahekowitz@gmail.com	Hannah	Kowitz 	\N	2067143811	2022-03-07 23:08:14.823694+00	\N	f
+246	meaghanblunck@gmail.com	Meaghan	Blunck	\N	2082015263	2022-03-08 03:37:05.695573+00	\N	f
+153	amandagarcia1123@gmail.com	Adalyn 	Garcia	\N	8143234502	2022-03-07 23:23:35.076397+00	\N	f
+384	melissamilligan94@gmail.com	Melissa	Ketterling	\N	4805290140	2022-03-13 16:00:37.414396+00	\N	f
+385	jacobelmer94@gmail.com	Jake	Elmer	\N	4802024132	2022-03-13 21:21:30.374471+00	\N	f
+386	dani.nielson@gmail.com	Dani	Nielson	\N	6027816452	2022-03-14 16:17:07.049854+00	\N	f
+387	kelsitoolson@gmail.com	Kelsi	Toolson	\N	9168448332	2022-03-15 06:07:07.038368+00	\N	f
+388	jkschlink@gmail.com	Kristen	Schlink	\N	4802952478	2022-03-15 23:01:55.834887+00	\N	f
+389	sarae.005@gmail.com	Sarah	Bentley	\N	4802027725	2022-03-15 23:05:35.832459+00	\N	f
+390	brookecruz12@gmail.com	Brooke	Cruz	\N	8012325527	2022-03-16 17:41:22.585918+00	\N	f
+391	ashleyannelake@gmail.com	Ashley	Larson	\N	6023000272	2022-03-16 19:30:44.329058+00	\N	f
+392	csredivo@gmail.com	Christina	Redivo	\N	4802711944	2022-03-16 21:02:29.830106+00	\N	f
+393	danika12n@gmail.com	Danika	Nichols	\N	4802136320	2022-03-17 01:03:14.559109+00	\N	f
+394	madimcbride2016@gmail.com	Madi	McBride	\N	480-603-8035	2022-03-18 16:13:33.29973+00	\N	f
+395	brown.tiakay@gmail.com	Tia	Brown	\N	4809801554	2022-03-18 18:53:26.5377+00	\N	f
+396	chels.farns@gmail.com	Chelsea	Farnsworth	\N	4807733534	2022-03-19 03:09:13.613957+00	\N	f
+397	flahertyaubrey@gmail.com	Aubrey	Flaherty	\N	4806896378	2022-03-21 00:15:28.753774+00	\N	f
+398	lori.mills92@gmail.com	Lori	Mills	\N	6023262181	2022-03-21 00:48:45.320905+00	\N	f
+399	jerbearalyssa420@gmail.com	Jericha	Rosson	\N	4802709300	2022-03-21 19:13:40.332962+00	\N	f
+400	kazandrajohnston@gmail.com	Kazandra	Iwen	\N	6024278632	2022-03-21 22:54:28.751434+00	\N	f
+401	delainritchey@gmail.com	Delain	Ritchey	\N	7144575526	2022-03-21 23:17:55.591451+00	\N	f
+402	bet2173340@gmail.com	beth	swan	\N	4802555186	2022-03-23 22:53:29.19638+00	\N	f
+403	nicoleegoettel@gmail.com	Nicole	Goettel	\N	8013769999	2022-03-24 13:30:51.64875+00	\N	f
+404	shawnandtasha@gmail.com	Natasha	Monahan	\N	4806945103	2022-03-24 16:04:00.527945+00	\N	f
+405	amylrjarvis10@gmail.com	Amy	Solomonson	\N	4808885494	2022-03-24 21:44:30.854962+00	\N	f
+406	saramorgan@vibes-interiors.com	Sara	Morgan	\N	9493025877	2022-04-11 22:06:28.472154+00	\N	f
+407	tkgould85@yahoo.com	Tara	Gould	\N	951-314-5586 	2022-04-12 14:36:24.04158+00	\N	f
+408	morganstrong21@gmail.com	Morgan	Strong	\N	9282663939	2022-04-12 22:25:03.238716+00	\N	f
+409	candy.leighmart@gmail.com	Candace	Martindale	\N	4802629493	2022-04-13 00:19:35.454602+00	\N	f
+410	joku60@gmail.com	Josh	Kuproski	\N	4802872590	2022-04-15 02:41:30.441298+00	\N	f
+\.
+
+
+--
+-- Data for Name: sessions; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.sessions ("sessionId", "sessionNumber", "sessionCost", "startDate", "endDate", active) FROM stdin;
+\.
+
+
+--
+-- Data for Name: students; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.students ("studentId", email, "firstName", "lastName", "fullName", "sessionPreference", "sessionAssigned", notes, "timePreference", "timeAssigned", created_at, updated_at, age, "emailSent") FROM stdin;
+517	lacyandmattaruba@gmail.com	Jackson	\N	\N	3	\N		2	\N	2022-03-07 19:09:25.042215+00	\N	5	f
+518	lacyandmattaruba@gmail.com	Jackson	\N	\N	4	\N		3	\N	2022-03-07 19:09:25.042236+00	\N	5	f
+519	haleyranaustin@gmail.com	Aria	\N	\N	3	\N		1	\N	2022-03-07 20:36:32.869483+00	\N	6	f
+524	haleyranaustin@gmail.com	Tristan 	\N	\N	3	\N		1	\N	2022-03-07 20:37:26.485234+00	\N	8	f
+540	annalisastewart123@yahoo.com	Joshua Stewart	\N	\N	1	\N		2	\N	2022-03-07 21:37:58.269032+00	\N	4	f
+541	annalisastewart123@yahoo.com	Joshua Stewart	\N	\N	2	\N		1	\N	2022-03-07 21:37:58.269322+00	\N	4	f
+548	dani.nielson@gmail.com	Cozy	\N	\N	1	\N	Beginner	1	\N	2022-03-07 21:46:54.71572+00	\N	4	f
+559	haleyranaustin@gmail.com	Maverick	\N	\N	4	\N		1	\N	2022-03-07 22:03:00.091405+00	\N	3	f
+563	haleyranaustin@gmail.com	Lilliana 	\N	\N	3	\N		1	\N	2022-03-07 22:03:30.014017+00	\N	7	f
+564	haleyranaustin@gmail.com	Colton	\N	\N	3	\N		1	\N	2022-03-07 22:03:56.26082+00	\N	5	f
+516	suzanne.odell@yahoo.com	Margaret 	\N	\N	1	1	Maggie would like to be in Elizabeth Connolly’s class. Liz gets out of preschool at 11:45 so after 12 would be preferred. 	2	8	2022-03-07 19:00:33.828976+00	\N	5	t
+542	sabrina.heaps@gmail.com	Reagan Heaps	\N	\N	1	1		1	3	2022-03-07 21:39:01.856053+00	\N	3	t
+543	lizgwillis@gmail.com	Emery Willis	\N	\N	1	1		1	1	2022-03-07 21:41:00.680187+00	\N	5	t
+537	meansj44@yahoo.com	Oakley	\N	\N	1	1		1	6	2022-03-07 21:32:17.083809+00	\N	4	t
+538	meansj44@yahoo.com	Lainey	\N	\N	1	1		1	5	2022-03-07 21:32:52.528144+00	\N	2	t
+544	lizgwillis@gmail.com	Kylee Willis	\N	\N	1	1		1	2	2022-03-07 21:41:25.6685+00	\N	3	t
+507	allisonpehrson@gmail.com	McKay	\N	\N	1	6	Best after 4pm because he will be in school for the first few weeks. 	3	17	2022-03-07 17:35:16.193745+00	\N	7	t
+515	celestewardrop@gmail.com	lulu	\N	\N	1	6		2	\N	2022-03-07 18:58:25.830056+00	\N	5	f
+525	erinleavitt13@gmail.com	Kai	\N	\N	1	1		1	4	2022-03-07 21:30:01.310465+00	\N	3	t
+508	allisonpehrson@gmail.com	Carter Pehrson	\N	\N	1	1	Best after 4 pm because his older brother is in school	3	16	2022-03-07 17:36:02.383814+00	\N	4	t
+549	dani.nielson@gmail.com	Cozy	\N	\N	3	3	Beginner 	1	4	2022-03-07 21:46:54.716027+00	\N	4	f
+512	brontepearl@gmail.com	Freya Burgess	\N	\N	4	4		1	6	2022-03-07 18:16:39.613225+00	\N	2	f
+521	kelseyvjackson@gmail.com	William	\N	\N	2	2	If possible, it would be great to have James and William back to back or at the same time.	1	5	2022-03-07 20:36:51.285169+00	\N	2	f
+520	kelseyvjackson@gmail.com	William	\N	\N	1	1	If possible, it would be great to have James and William back to back or at the same time.	2	7	2022-03-07 20:36:51.281792+00	\N	2	t
+528	cieraflake34@gmail.com	Boston Flake	\N	\N	2	2		1	4	2022-03-07 21:30:45.730278+00	\N	3	f
+534	kelseyvjackson@gmail.com	James Jackson	\N	\N	2	2	If possible we would love to do james and william back to back or same time.	1	5	2022-03-07 21:31:49.647661+00	\N	4	f
+513	brontepearl@gmail.com	Eli Burgess	\N	\N	2	2		1	6	2022-03-07 18:20:42.618997+00	\N	6	f
+526	cinn005@gmail.com	Olivia Ortiz	\N	\N	2	2		1	7	2022-03-07 21:30:17.2875+00	\N	6	f
+555	moniekramsey@gmail.com	Holland Ramsey	\N	\N	2	2	I’d really need a morning time slot with other classes in Pm. Thank you! We can’t wait!	1	4	2022-03-07 21:57:27.237484+00	\N	4	f
+545	tarabreann@gmail.com	Finn Hymas	\N	\N	2	2	Prefer after 10 if possible	1	9	2022-03-07 21:42:41.121599+00	\N	3	f
+530	cinn005@gmail.com	Sophie Ortiz	\N	\N	2	2	Prefer to schedule close to sister's time (Olivia Ortiz)	1	7	2022-03-07 21:31:22.080815+00	\N	4	f
+536	meansj44@yahoo.com	Oakley	\N	\N	2	2		1	8	2022-03-07 21:32:17.086981+00	\N	4	f
+527	cieraflake34@gmail.com	Boston Flake	\N	\N	1	1		1	3	2022-03-07 21:30:45.729856+00	\N	3	t
+522	kelseyvjackson@gmail.com	William	\N	\N	3	6	William will just be doing swim lessons, and we will only be there the first week. (If possible, James could hop in the class the first week or William could do make ups?)	1	\N	2022-03-07 20:36:51.286268+00	\N	2	f
+539	meansj44@yahoo.com	Lainey	\N	\N	2	2		1	8	2022-03-07 21:32:52.528681+00	\N	2	f
+547	tarabreann@gmail.com	Tyson Hymas	\N	\N	2	2	Prefer Close to Finn's Session Time	1	8	2022-03-07 21:43:53.967294+00	\N	6	f
+550	happyhalls05@gmail.com	Maggie	\N	\N	2	2		3	13	2022-03-07 21:50:35.58348+00	\N	6	f
+551	happyhalls05@gmail.com	Annie	\N	\N	2	2		3	13	2022-03-07 21:51:03.614064+00	\N	4	f
+531	meansj44@yahoo.com	Owen	\N	\N	2	2		1	8	2022-03-07 21:31:29.05572+00	\N	6	f
+552	abbey002@gmail.com	Cohen Lindblom	\N	\N	2	2	We can only come at 11am if you have that open!	1	5	2022-03-07 21:52:07.97393+00	\N	2	f
+553	swade.edu@gmail.com	Kate Wade	\N	\N	2	2	Friends with Olivia and Sophie Ortiz	1	7	2022-03-07 21:53:03.262707+00	\N	5	f
+554	swade.edu@gmail.com	Lauren Wade	\N	\N	2	2	Friends with Olivia and Sophie Ortiz	1	7	2022-03-07 21:53:50.975448+00	\N	3	f
+514	brontepearl@gmail.com	Eli Burgess	\N	\N	3	3		1	1	2022-03-07 18:20:42.619394+00	\N	6	f
+510	brontepearl@gmail.com	Freya Burgess	\N	\N	2	2		1	6	2022-03-07 18:16:39.61009+00	\N	2	f
+561	brenjay95@gmail.com	Mack Love	\N	\N	2	2	Trying to get him in the same class as big brother or have them be back to back 	1	8	2022-03-07 22:03:25.411535+00	\N	2	f
+557	brenjay95@gmail.com	Lincoln Love	\N	\N	2	2		1	8	2022-03-07 22:02:08.205922+00	\N	4	f
+511	brontepearl@gmail.com	Freya Burgess	\N	\N	3	3		1	2	2022-03-07 18:16:39.611882+00	\N	2	f
+523	kelseyvjackson@gmail.com	William	\N	\N	4	4	If possible, it would be great to have James and William back to back or at the same time.	1	3	2022-03-07 20:36:51.286242+00	\N	2	f
+546	tarabreann@gmail.com	Finn Hymas	\N	\N	3	3	Prefer after 10 if possible 	1	3	2022-03-07 21:42:41.121608+00	\N	3	f
+558	brenjay95@gmail.com	Lincoln Love	\N	\N	3	3		1	3	2022-03-07 22:02:08.206238+00	\N	4	f
+562	brenjay95@gmail.com	Mack Love	\N	\N	3	3		1	2	2022-03-07 22:03:25.411887+00	\N	2	f
+556	tealsnowblog@gmail.com	Snow Wall	\N	\N	2	4		1	2	2022-03-07 22:01:58.212572+00	\N	1	f
+535	kelseyvjackson@gmail.com	James Jackson	\N	\N	4	4	If possible, we would love to do james and william same time or back to back. 	1	3	2022-03-07 21:31:49.648198+00	\N	4	f
+529	cieraflake34@gmail.com	Boston Flake	\N	\N	4	4		2	8	2022-03-07 21:30:45.733821+00	\N	3	f
+532	meansj44@yahoo.com	Owen	\N	\N	2	2		1	8	2022-03-07 21:31:29.297263+00	\N	6	f
+565	haleyranaustin@gmail.com	Emmalyn	\N	\N	4	\N		1	\N	2022-03-07 22:04:26.17907+00	\N	3	f
+566	sabrina.heaps@gmail.com	Tate Heaps	\N	\N	2	2	Prefer to have a similar time as his sister, Reagan Heaps	1	9	2022-03-07 22:06:27.221773+00	\N	6	f
+568	sirrahakire@gmail.com	Bodhi Harris	\N	\N	2	2	If able pair with Reagan Nelson	1	4	2022-03-07 22:16:28.052873+00	\N	3	f
+567	sabrina.heaps@gmail.com	Reagan Heaps	\N	\N	2	2	Prefer to have a similar time as her brother, Tate Heaps	1	9	2022-03-07 22:07:05.694283+00	\N	3	f
+573	morganstrong21@gmail.com	Ivan	\N	\N	1	\N		1	\N	2022-03-07 22:50:42.997796+00	\N	3	f
+595	nlunsford03@gmail.com	Lainey	\N	\N	1	\N		1	\N	2022-03-07 23:21:24.471901+00	\N	2	f
+596	nlunsford03@gmail.com	Lainey	\N	\N	1	\N		1	\N	2022-03-07 23:21:25.303307+00	\N	2	f
+575	pattylam@ucla.edu	Lana low 	\N	\N	3	3	Earlier preferred if possible please thanks 	2	11	2022-03-07 22:58:33.058851+00	\N	3	f
+581	estherashaw@hotmail.com	Thomas Connolly	\N	\N	1	1		2	3	2022-03-07 22:59:54.011252+00	\N	3	t
+612	courtneybiddle@gmail.com	Piper Miller 	\N	\N	1	1	Piper is home from school at 3:15 T, Th & Wed at 2:15 	3	15	2022-03-07 23:58:52.184616+00	\N	5	t
+617	jasonalston61@gmail.com	Daniel Alston	\N	\N	3	3		1	8	2022-03-08 00:05:35.206107+00	\N	4	f
+600	dauanielooq@gmail.com	Lilian Hansen	\N	\N	1	1	Signing up Emma Hansen, if possible can we have their times be next to each other/ the same?	1	6	2022-03-07 23:27:50.605707+00	\N	5	t
+599	amandagarcia1123@gmail.com	Adalyn  Garcia	\N	\N	1	1		1	9	2022-03-07 23:25:44.784973+00	\N	3	t
+629	bock_sheryl@yahoo.com	Hudson Bock	\N	\N	2	2		1	5	2022-03-08 00:41:41.187492+00	\N	5	f
+574	tsdickerson88@gmail.com	Frankie Dickerson	\N	\N	2	2		1	3	2022-03-07 22:51:36.735068+00	\N	4	f
+597	courtney.b.little@gmail.com	Teddy	\N	\N	1	6	Preschool starts at 11 so earlier time slot preferred.	1	13	2022-03-07 23:21:33.986582+00	\N	5	f
+602	bmaestauffer@gmail.com	Hudson Stauffer	\N	\N	1	1	Preferably after 3:30 to make it after school	3	17	2022-03-07 23:34:29.315859+00	\N	7	t
+603	bmaestauffer@gmail.com	Eva Stauffer	\N	\N	1	1	Preferably no later than 11am to accommodate afternoon kinder	1	1	2022-03-07 23:36:29.03621+00	\N	5	t
+604	bmaestauffer@gmail.com	Elsie Stauffer	\N	\N	1	1		1	2	2022-03-07 23:37:30.578355+00	\N	3	t
+605	chloe.dana@gmail.com	Zeek	\N	\N	1	1	Anytime really 	2	5	2022-03-07 23:45:43.18264+00	\N	1	t
+594	cook5971@gmail.com	Sienna Cascio	\N	\N	1	1		3	16	2022-03-07 23:09:44.885013+00	\N	3	t
+616	jasonalston61@gmail.com	Daniel Alston	\N	\N	1	1		3	15	2022-03-08 00:05:35.205661+00	\N	4	t
+576	audreyg421@hotmail.com	Thatcher	\N	\N	2	2		1	5	2022-03-07 22:59:12.380466+00	\N	3	f
+571	jacobelmer94@gmail.com	Stephen Robert	\N	\N	1	1	Returning student	3	13	2022-03-07 22:41:41.452432+00	\N	4	t
+619	brittney29@gmail.com	Kemp	\N	\N	2	2		1	4	2022-03-08 00:33:19.106207+00	\N	4	f
+580	brendystowell@gmail.com	Mack	\N	\N	2	2	He will be 5 at the time of lessons 	1	6	2022-03-07 22:59:28.124026+00	\N	4	f
+583	cmarini_7@hotmail.com	Emmitt 	\N	\N	2	2	Emmitt has autism and his ability to be attentive is more limited than the average 5 year old.	3	15	2022-03-07 23:01:52.717572+00	\N	5	f
+591	hannahekowitz@gmail.com	Jackson kowitz 	\N	\N	1	6	After 4pm please if you end up offering a toddler afternoon class	3	\N	2022-03-07 23:09:16.915841+00	\N	2	f
+590	hannahekowitz@gmail.com	Jackson kowitz 	\N	\N	2	2	After 4pm (mom works)	3	16	2022-03-07 23:09:16.918471+00	\N	2	f
+587	hannahekowitz@gmail.com	Tessa kowitz 	\N	\N	2	2	4pm or later please (mom works)	3	16	2022-03-07 23:07:35.034691+00	\N	4	f
+608	cjsprat@gmail.com	Whitney Spratling 	\N	\N	2	2	Little sister Halle (4 yr old) also signed up. Would be awesome to have same time or back to back 	1	11	2022-03-07 23:47:14.533667+00	\N	5	f
+606	cjsprat@gmail.com	Halle Spratling 	\N	\N	2	2		1	11	2022-03-07 23:46:13.836265+00	\N	4	f
+607	chloe.dana@gmail.com	Weslie 	\N	\N	2	2		1	11	2022-03-07 23:46:42.020012+00	\N	6	f
+609	chloe.dana@gmail.com	Zeek	\N	\N	2	2		1	12	2022-03-07 23:47:32.885911+00	\N	1	f
+620	jenessatippetts@gmail.com	Liam Tippetts	\N	\N	2	2		1	1	2022-03-08 00:33:40.011691+00	\N	5	f
+623	jenessatippetts@gmail.com	Harper Tippetts	\N	\N	2	2		1	2	2022-03-08 00:34:27.922448+00	\N	2	f
+613	courtneybiddle@gmail.com	Piper Miller 	\N	\N	2	2		1	1	2022-03-07 23:58:52.184868+00	\N	5	f
+615	courtneybiddle@gmail.com	Emme Miller 	\N	\N	2	2		1	2	2022-03-07 23:59:37.520846+00	\N	2	f
+579	estherashaw@hotmail.com	Elizabeth Connolly	\N	\N	1	1		2	8	2022-03-07 22:59:21.585684+00	\N	5	t
+611	alyssa.zeigler92@gmail.com	Oliver Zeigler	\N	\N	2	2		1	6	2022-03-07 23:54:28.496224+00	\N	2	f
+569	sirrahakire@gmail.com	Bodhi Harris	\N	\N	3	3	If able pair with Reagan Nelson. 	1	4	2022-03-07 22:16:28.052885+00	\N	3	f
+570	celestewardrop@gmail.com	lulu	\N	\N	2	6		1	5	2022-03-07 22:19:09.362664+00	\N	5	t
+577	audreyg421@hotmail.com	Thatcher	\N	\N	3	3		1	4	2022-03-07 22:59:12.38094+00	\N	3	f
+626	tessrachelbates@gmail.com	Wilhelmina Bates 	\N	\N	3	3		1	3	2022-03-08 00:36:29.564316+00	\N	4	f
+585	alli.breinholt@gmail.com	Parker Breinholt	\N	\N	1	1		2	13	2022-03-07 23:03:55.840175+00	\N	4	t
+627	tessrachelbates@gmail.com	Adelaide 	\N	\N	3	3		1	3	2022-03-08 00:36:51.77969+00	\N	3	f
+588	hannahekowitz@gmail.com	Tessa kowitz 	\N	\N	3	3	4pm or later please (mom works)	3	16	2022-03-07 23:07:35.038086+00	\N	4	f
+628	bock_sheryl@yahoo.com	Hudson Bock	\N	\N	3	3		1	1	2022-03-08 00:41:41.187506+00	\N	5	f
+631	bock_sheryl@yahoo.com	Hudson Bock	\N	\N	3	3		1	1	2022-03-08 00:41:41.329796+00	\N	5	f
+632	bock_sheryl@yahoo.com	Hudson Bock	\N	\N	3	3		1	1	2022-03-08 00:41:42.708047+00	\N	5	f
+593	hannahekowitz@gmail.com	Jackson kowitz 	\N	\N	3	3	After 4pm (mom works)	3	16	2022-03-07 23:09:16.922387+00	\N	2	f
+578	audreyg421@hotmail.com	Thatcher	\N	\N	4	4		1	1	2022-03-07 22:59:12.383412+00	\N	3	f
+582	audreyg421@hotmail.com	Halston	\N	\N	4	4		1	2	2022-03-07 22:59:59.183002+00	\N	1	f
+625	jenessatippetts@gmail.com	Harper Tippetts	\N	\N	4	4		3	11	2022-03-08 00:34:27.925842+00	\N	2	f
+622	jenessatippetts@gmail.com	Liam Tippetts	\N	\N	4	4		3	12	2022-03-08 00:33:40.015788+00	\N	5	f
+589	hannahekowitz@gmail.com	Tessa kowitz 	\N	\N	4	4	4pm or later please (mom works)	3	15	2022-03-07 23:07:35.038954+00	\N	4	f
+592	hannahekowitz@gmail.com	Jackson kowitz 	\N	\N	4	4	After 4pm (mom works)	3	15	2022-03-07 23:09:16.922062+00	\N	2	f
+584	cmarini_7@hotmail.com	Emmitt 	\N	\N	3	3		3	15	2022-03-07 23:01:52.717983+00	\N	5	f
+621	jenessatippetts@gmail.com	Liam Tippetts	\N	\N	3	3		1	1	2022-03-08 00:33:40.011924+00	\N	5	f
+624	jenessatippetts@gmail.com	Harper Tippetts	\N	\N	3	3		1	2	2022-03-08 00:34:27.922461+00	\N	2	f
+598	clarissa1769@gmail.com	Kinsley 	\N	\N	2	2		1	7	2022-03-07 23:24:00.802362+00	\N	5	f
+614	courtneybiddle@gmail.com	Emme Miller 	\N	\N	1	1		1	7	2022-03-07 23:59:37.520315+00	\N	2	t
+610	alyssa.zeigler92@gmail.com	Milo Zeigler	\N	\N	2	2		1	7	2022-03-07 23:52:34.375106+00	\N	5	f
+636	bock_sheryl@yahoo.com	Michael Bock	\N	\N	4	4	Michael DOB 1/25/21, he will be 18 months old in Aug. 	1	6	2022-03-08 00:46:19.542797+00	\N	1	f
+641	alysethefirst@gmail.com	Jackson	\N	\N	1	\N	The earliest we could come is 3:30, 4pm or later would be best	3	\N	2022-03-08 00:57:01.216234+00	\N	1	f
+648	mrollans@cox.net	Hudson	\N	\N	3	\N		1	\N	2022-03-08 01:01:11.398411+00	\N	3	f
+662	hartman.suzette@gmail.com	Savannah 	\N	\N	1	\N	If there is a kallie Egan or a Maggie Williams we’d love to be in their class	1	\N	2022-03-08 01:43:03.478709+00	\N	2	f
+680	therollenders@hotmail.com	Chloe	\N	\N	1	1		1	6	2022-03-08 02:14:36.703144+00	\N	2	t
+682	lrollender@gmail.com	Blair	\N	\N	2	\N		1	\N	2022-03-08 02:20:19.148778+00	\N	4	f
+649	kyleetaylor87@gmail.com	Cash Taylor	\N	\N	1	1	Cash is in preschool until 11:30. So we could 12:30, 1:00, 1:30, 2:00, or 2:30.	2	8	2022-03-08 01:08:41.753544+00	\N	5	t
+572	brieann.hales@gmail.com	Jamie Hales 	\N	\N	1	1	Jamie naps 1-3pm so a morning is best! Thank you 	1	7	2022-03-07 22:47:17.221195+00	\N	2	t
+671	rach.willett@gmail.com	Graham Willett 	\N	\N	1	1	Can’t attend from 1-3:45 pm 	1	7	2022-03-08 01:51:35.377725+00	\N	2	t
+586	hannahekowitz@gmail.com	Tessa kowitz 	\N	\N	1	1	4pm or later please (Tessa in full-day pre-k and mom works)	3	15	2022-03-07 23:07:35.034711+00	\N	4	t
+657	alipatch2093@gmail.com	Nash Bair 	\N	\N	1	2		1	6	2022-03-08 01:40:28.988819+00	\N	5	f
+664	mmnelson115@gmail.com	Emi	\N	\N	1	1		1	1	2022-03-08 01:43:55.439288+00	\N	5	t
+665	chaddysgirl18@gmail.com	Rhett	\N	\N	1	1		1	4	2022-03-08 01:47:53.429634+00	\N	3	t
+601	dauanielooq@gmail.com	Emma Hansen	\N	\N	1	1	Signed up with Lilian Hansen if possible can their lesson times be next to each other/same? Emma is 22 months.	1	5	2022-03-07 23:29:59.161109+00	\N	2	t
+670	rach.willett@gmail.com	Paxton Willett	\N	\N	1	1	Can’t attend from 1-3:45 pm	1	6	2022-03-08 01:50:47.780225+00	\N	5	t
+658	alipatch2093@gmail.com	Ruby Bair 	\N	\N	1	2		1	6	2022-03-08 01:41:12.95206+00	\N	2	f
+675	lacey.egan@gmail.com	Kallie	\N	\N	1	1	Love to be in the same class as Savannah Hartman and Halle Peterson if possible	1	4	2022-03-08 01:58:32.234519+00	\N	3	t
+683	kahpeterson@gmail.com	Halle Peterson	\N	\N	1	\N	Would like to be with Kallie Egan and Savannah Hartman	1	\N	2022-03-08 02:26:06.683106+00	\N	3	f
+684	lrollender@gmail.com	Fox	\N	\N	2	\N		1	\N	2022-03-08 02:26:22.153127+00	\N	3	f
+677	caralina3109@gmail.com	Maggie Williams 	\N	\N	1	1	We can do lessons after 9:30am	1	12	2022-03-08 02:03:48.695566+00	\N	4	t
+688	lildonai@gmail.com	Ozro Mantle	\N	\N	1	6		2	11	2022-03-08 02:49:05.884638+00	\N	5	t
+686	megmarie.clifford@gmail.com	Emery	\N	\N	1	\N		1	\N	2022-03-08 02:45:59.937212+00	\N	4	f
+687	lildonai@gmail.com	Marigold Mantle	\N	\N	1	1		2	11	2022-03-08 02:48:12.335477+00	\N	1	t
+679	jenniferm.rossell@gmail.com	Norman 	\N	\N	1	1	If possible have the time 9 or 11:30 would be best 	1	13	2022-03-08 02:12:25.963982+00	\N	4	t
+678	jenniferm.rossell@gmail.com	James 	\N	\N	1	1		1	5	2022-03-08 02:11:14.016249+00	\N	2	t
+691	madsen.ashley@gmail.com	Foster Madsen	\N	\N	1	1		1	9	2022-03-08 03:14:03.99776+00	\N	3	t
+669	bgale718@gmail.com	Carter Gale	\N	\N	2	2	If we can schedule Lincoln and Carter around similar time. 	3	11	2022-03-08 01:49:15.723854+00	\N	6	f
+690	madsen.ashley@gmail.com	Molly Madsen	\N	\N	1	1		1	9	2022-03-08 03:13:28.709433+00	\N	3	t
+656	kortneyjt@gmail.com	Harvey	\N	\N	1	1	I prefer 9-1130 time but couldn’t do 1130 because of school. 9,930,10,1030,or 11 would be great! 	1	4	2022-03-08 01:30:11.178269+00	\N	3	t
+672	candaceshiflet@gmail.com	Brighton	\N	\N	1	6	If possible to do after 3:30pm on Monday, Tuesday, and or Fridays. We can switch sessions if this isn’t possible. 	3	15	2022-03-08 01:55:40.625942+00	\N	5	t
+650	kyleetaylor87@gmail.com	Cash Taylor	\N	\N	2	2		2	11	2022-03-08 01:08:41.753574+00	\N	5	f
+659	alipatch2093@gmail.com	Ruby Bair 	\N	\N	2	2		1	6	2022-03-08 01:41:12.95235+00	\N	2	f
+642	abenn09@yahoo.com	Owen 	\N	\N	2	2		1	3	2022-03-08 01:00:27.087042+00	\N	4	f
+645	abenn09@yahoo.com	Olive	\N	\N	2	2		1	3	2022-03-08 01:01:05.148038+00	\N	4	f
+637	jeanettechasedavis@gmail.com	London Davis	\N	\N	2	2	Having a class at similar time to Emmy davis (3) would be great	1	9	2022-03-08 00:51:24.305882+00	\N	5	f
+638	jeanettechasedavis@gmail.com	Emmy Davis	\N	\N	2	2	Class at similar time to sister London Davis	1	9	2022-03-08 00:52:19.802219+00	\N	3	f
+663	alipatch2093@gmail.com	Nash Bair 	\N	\N	2	2		1	6	2022-03-08 01:43:24.679265+00	\N	5	f
+674	nikkiow7@gmail.com	Lexi	\N	\N	2	2		2	9	2022-03-08 01:56:15.038918+00	\N	5	f
+694	lmandrsn12@gmail.com	Marquel 	\N	\N	2	2	Request same time slot as Emery	1	9	2022-03-08 03:25:33.52307+00	\N	7	f
+689	saramorgan@vibes-interiors.com	Kailo	\N	\N	3	6		1	2	2022-03-08 02:49:19.532981+00	\N	2	f
+693	lmandrsn12@gmail.com	Emery	\N	\N	2	2	speech therapy on Monday 3-3:45pm, gymnastics on Tuesday 4-5pm	3	9	2022-03-08 03:24:23.313074+00	\N	4	f
+666	bgale718@gmail.com	Lincoln Gale	\N	\N	1	1		2	11	2022-03-08 01:48:19.313203+00	\N	3	t
+646	abenn09@yahoo.com	Olive	\N	\N	3	3		1	3	2022-03-08 01:01:05.148294+00	\N	4	f
+643	abenn09@yahoo.com	Owen 	\N	\N	3	3		1	3	2022-03-08 01:00:27.087239+00	\N	4	f
+640	heatherspores@yahoo.com	Jace	\N	\N	3	3	After 4 would be best	3	16	2022-03-08 00:56:09.569677+00	\N	3	f
+639	heatherspores@yahoo.com	Kylie	\N	\N	3	3	After 4 would be best	3	16	2022-03-08 00:55:30.803813+00	\N	4	f
+668	bgale718@gmail.com	Lincoln Gale	\N	\N	4	4		2	8	2022-03-08 01:48:19.326674+00	\N	3	f
+644	abenn09@yahoo.com	Owen 	\N	\N	4	4		3	12	2022-03-08 01:00:27.08978+00	\N	4	f
+647	abenn09@yahoo.com	Olive	\N	\N	4	4		3	12	2022-03-08 01:01:05.150421+00	\N	4	f
+651	kwpacker22@gmail.com	Rylyn Packer	\N	\N	3	3		1	10	2022-03-08 01:24:15.563149+00	\N	9	f
+652	kwpacker22@gmail.com	Nixon Packer 	\N	\N	3	3		1	10	2022-03-08 01:24:40.515089+00	\N	7	f
+653	kwpacker22@gmail.com	Grayson Packer 	\N	\N	3	3		1	10	2022-03-08 01:25:00.473052+00	\N	7	f
+654	kwpacker22@gmail.com	Calvin Packer 	\N	\N	3	3		1	9	2022-03-08 01:25:47.93576+00	\N	5	f
+655	kwpacker22@gmail.com	Weston Packer 	\N	\N	3	3		1	9	2022-03-08 01:26:19.623109+00	\N	3	f
+660	kblodgett09@gmail.com	Emmett McLaughlin	\N	\N	3	3		1	1	2022-03-08 01:42:10.169776+00	\N	6	f
+661	kblodgett09@gmail.com	Wyatt McLaughlin	\N	\N	3	3		1	2	2022-03-08 01:42:34.496428+00	\N	2	f
+676	loisappleofmyeye7@gmail.com	Hannah	\N	\N	3	3		1	9	2022-03-08 01:58:56.101815+00	\N	5	f
+681	jenniferm.rossell@gmail.com	Norman 	\N	\N	1	1	Correct notes: times between 9-10:30 is best	1	13	2022-03-08 02:18:50.5871+00	\N	4	t
+685	natalie.clouse14@gmail.com	Jane Clouse	\N	\N	2	2		1	1	2022-03-08 02:45:44.238842+00	\N	4	f
+699	meaghanblunck@gmail.com	Trey	\N	\N	1	\N	His school starts at 11:15 and his friend is Max King	1	\N	2022-03-08 03:36:22.970253+00	\N	4	f
+560	tealsnowblog@gmail.com	Penelope Wall	\N	\N	2	2	Im wanting my 1 year old and 5 year old to be in classes preferably one after another or at least close together! 	1	3	2022-03-07 22:03:13.341401+00	\N	5	f
+667	bgale718@gmail.com	Lincoln Gale	\N	\N	2	2	If we can schedule Lincoln and Carter around similar time. 	3	11	2022-03-08 01:48:19.313371+00	\N	3	f
+695	emmaliving@gmail.com	Jack	\N	\N	1	1	Jack can do 3:30 or later!	3	17	2022-03-08 03:25:38.43246+00	\N	6	t
+697	emmaliving@gmail.com	Bowie	\N	\N	1	1	12 - 2. Could also do a later time if it lines up with Jack after school!	2	12	2022-03-08 03:27:22.6539+00	\N	5	t
+692	lmandrsn12@gmail.com	Marquel 	\N	\N	1	6	School gets out at 3pm, Tuesday she has gymnastics from 4-5pm	3	\N	2022-03-08 03:21:03.786404+00	\N	7	f
+749	rachelwestergard@gmail.com	Michaela Westergard	\N	\N	1	2	Michaela needs to brush up on her technique before summer swim team	3	\N	2022-03-08 11:28:49.833802+00	\N	11	f
+702	peterson.katie.w@gmail.com	Cooper Peterson	\N	\N	1	1	I would need to be done by 10:30 in order to get Parker to school.	1	2	2022-03-08 03:38:40.209869+00	\N	3	t
+744	rachelwestergard@gmail.com	Marcus Westergard	\N	\N	2	2	1:00 would be the soonest possible (summer school) could do as late as a 3:30-4:00 class	2	14	2022-03-08 11:18:00.556026+00	\N	6	f
+703	peterson.katie.w@gmail.com	Parker Peterson	\N	\N	1	1	I would need to be done by 10:30 in order to get Parker to school.	1	1	2022-03-08 03:41:10.324339+00	\N	5	t
+705	swade.edu@gmail.com	Kate Wade	\N	\N	1	2	Preschool in the morning	3	7	2022-03-08 03:49:39.05047+00	\N	5	f
+738	laceyd22@yahoo.com	Lou urban 	\N	\N	1	1	Preferably a 12/12:30 time slot 	2	11	2022-03-08 06:39:58.23269+00	\N	2	t
+731	tara.mattingly@hotmail.com	Talon	\N	\N	2	\N		3	\N	2022-03-08 05:07:32.222558+00	\N	2	f
+735	britt.cooley87@gmail.com	Vander 	\N	\N	1	1	3:30 is earliest 	3	14	2022-03-08 06:22:29.133415+00	\N	4	t
+732	tara.mattingly@hotmail.com	Talon	\N	\N	1	\N		3	\N	2022-03-08 05:07:32.222378+00	\N	2	f
+706	swade.edu@gmail.com	Lauren Wade	\N	\N	1	2	Preschool in the morning	3	7	2022-03-08 03:50:18.664013+00	\N	3	f
+737	britt.cooley87@gmail.com	Rigley 	\N	\N	1	1	3:30 earliest 	3	14	2022-03-08 06:23:38.082238+00	\N	6	t
+747	rachelwestergard@gmail.com	Katherine Westergard	\N	\N	2	2	same as Marcus	2	14	2022-03-08 11:25:22.882584+00	\N	6	f
+696	lmandrsn12@gmail.com	Emery	\N	\N	2	2	Request same time as Marquel 	1	9	2022-03-08 03:26:11.802176+00	\N	4	f
+698	sdawnking@gmail.com	Max	\N	\N	2	2		1	6	2022-03-08 03:31:32.0658+00	\N	6	f
+733	tara.mattingly@hotmail.com	Talon	\N	\N	1	\N	Preferably the 4:30 or 5 time slot for Talon	3	\N	2022-03-08 05:13:34.906616+00	\N	2	f
+708	vivienelson1@gmail.com	Reagan Nelson	\N	\N	2	2		1	4	2022-03-08 04:04:52.940484+00	\N	3	f
+635	bock_sheryl@yahoo.com	Hudson Bock	\N	\N	3	3		1	1	2022-03-08 00:41:42.942645+00	\N	5	f
+709	vivienelson1@gmail.com	Reagan Nelson	\N	\N	3	3		1	4	2022-03-08 04:04:52.943149+00	\N	3	f
+701	peterson.katie.w@gmail.com	Cooper Peterson	\N	\N	2	2		1	5	2022-03-08 03:38:40.210022+00	\N	3	f
+746	rachelwestergard@gmail.com	David Westergard	\N	\N	2	2	same as Marcus	2	14	2022-03-08 11:19:40.78284+00	\N	6	f
+724	hannah.marchant@gmail.com	Jacob	\N	\N	2	2		3	16	2022-03-08 04:41:29.792103+00	\N	4	f
+630	bock_sheryl@yahoo.com	Hudson Bock	\N	\N	2	2		1	5	2022-03-08 00:41:41.329548+00	\N	5	f
+727	hannah.marchant@gmail.com	Madeline	\N	\N	2	2		3	16	2022-03-08 04:42:42.051188+00	\N	2	f
+739	laceyd22@yahoo.com	Beau urban 	\N	\N	1	1	Preferably a 12/12:30 time slot due to preschool 	2	11	2022-03-08 06:40:40.314888+00	\N	3	t
+740	sorensenfamily1@gmail.com	Nixon Sorensen	\N	\N	1	2	Nixon has prek T/W/TH until 11:30am 	3	13	2022-03-08 08:04:51.384518+00	\N	4	f
+723	hannah.marchant@gmail.com	Jacob	\N	\N	1	2	He has preschool that starts at 11:45, so we would need a class time that is done no later than 11.	1	16	2022-03-08 04:41:29.791698+00	\N	4	f
+722	tacomish@mac.com	Tripp Comish	\N	\N	1	1	Tripp has preschool at 11:30	1	13	2022-03-08 04:38:29.562932+00	\N	4	t
+712	summersfletcher@gmail.com	Olivia	\N	\N	3	3	She has Beckham and Scarlett needing lessons too so if they can be at the same time that would be great	1	7	2022-03-08 04:19:18.076003+00	\N	4	f
+716	summersfletcher@gmail.com	Beckham	\N	\N	3	3		1	6	2022-03-08 04:20:07.169925+00	\N	2	f
+718	summersfletcher@gmail.com	Scarlett	\N	\N	3	3		1	6	2022-03-08 04:20:42.725747+00	\N	2	f
+700	meaghanblunck@gmail.com	Trey	\N	\N	4	4	Preschool starts at 11:15	1	3	2022-03-08 03:38:08.468919+00	\N	4	f
+751	jessmhammer@gmail.com	carson hammer 	\N	\N	4	4	full day kindergarten in august. 3:30-5:30 works best ☺️	3	14	2022-03-08 14:19:36.225476+00	\N	5	f
+721	pattylam@ucla.edu	Landon Low	\N	\N	4	4	earliest can make it is 3:30 due to school	3	14	2022-03-08 04:37:45.310727+00	\N	6	f
+719	natalie357@gmail.com	Livvy Allred	\N	\N	4	4		1	4	2022-03-08 04:27:48.202589+00	\N	3	f
+710	vivienelson1@gmail.com	Reagan Nelson	\N	\N	4	4		1	4	2022-03-08 04:04:52.944605+00	\N	3	f
+715	summersfletcher@gmail.com	Beckham	\N	\N	1	3		1	6	2022-03-08 04:20:07.167879+00	\N	2	f
+720	natalie357@gmail.com	Livvy Allred	\N	\N	1	1		1	3	2022-03-08 04:27:48.203065+00	\N	3	t
+704	peterson.katie.w@gmail.com	Parker Peterson	\N	\N	2	2		1	5	2022-03-08 03:41:10.324362+00	\N	5	f
+726	hannah.marchant@gmail.com	Madeline	\N	\N	1	2	Her brother has preschool at 11:45, so we need to be done with our swim classes for both by 11.	1	16	2022-03-08 04:42:42.050775+00	\N	2	f
+717	summersfletcher@gmail.com	Scarlett	\N	\N	1	3		1	6	2022-03-08 04:20:42.725541+00	\N	2	f
+745	rachelwestergard@gmail.com	David Westergard	\N	\N	1	2	same as Marcus	3	17	2022-03-08 11:19:40.782617+00	\N	6	f
+743	rachelwestergard@gmail.com	Marcus Westergard	\N	\N	1	2	3:30 would be the absolute soonest that we could make it for this session, 4:00 would be better, and I would like to get all 4 of my kids in at the same time if possible	3	17	2022-03-08 11:18:00.553812+00	\N	6	f
+748	rachelwestergard@gmail.com	Katherine Westergard	\N	\N	1	2	My goal for Katherine would be to get her ready for a non-competitive 6 year old swim team, Marcus and David are obviously not there yet	3	17	2022-03-08 11:25:22.882261+00	\N	6	f
+707	vivienelson1@gmail.com	Reagan Nelson	\N	\N	1	1	Same time as Emi Nelson	1	2	2022-03-08 04:04:52.940473+00	\N	3	t
+728	hannah.marchant@gmail.com	Madeline	\N	\N	3	3		1	6	2022-03-08 04:42:42.053331+00	\N	2	f
+725	hannah.marchant@gmail.com	Jacob	\N	\N	3	3		1	7	2022-03-08 04:41:29.794201+00	\N	4	f
+742	sorensenfamily1@gmail.com	Nixon Sorensen	\N	\N	3	3		2	7	2022-03-08 08:04:51.38946+00	\N	4	f
+734	britt.cooley87@gmail.com	Vander 	\N	\N	2	2	3:30 is earliest 	3	15	2022-03-08 06:22:29.133804+00	\N	4	f
+736	britt.cooley87@gmail.com	Rigley 	\N	\N	2	2	3:30 earliest 	3	14	2022-03-08 06:23:38.08199+00	\N	6	f
+741	sorensenfamily1@gmail.com	Nixon Sorensen	\N	\N	2	2	We would love to be in class with Lily Hansen again	2	11	2022-03-08 08:04:51.384954+00	\N	4	f
+750	rachelwestergard@gmail.com	Michaela Westergard	\N	\N	2	2	same as Marcus	2	14	2022-03-08 11:28:49.833815+00	\N	11	f
+729	wendytrue7@gmail.com	Carly	\N	\N	1	1	Needs to be done by 11:30 so she can make it to school 	1	15	2022-03-08 04:50:32.626681+00	\N	5	f
+730	wendytrue7@gmail.com	Cole	\N	\N	1	1		1	16	2022-03-08 04:51:06.238732+00	\N	3	f
+756	mandyw03@gmail.com	Livvy (Liv) Woodman	\N	\N	1	1		1	10	2022-03-08 15:23:26.875318+00	\N	3	t
+757	sorensenlacey@hotmail.com	Bailey	\N	\N	1	1		1	10	2022-03-08 15:28:26.130416+00	\N	3	t
+755	natalie.clouse14@gmail.com	Scarlett Clouse	\N	\N	3	2	First swim lessons, turns 2 in April this year. Willing to switch both my kids to this session if they are close in times.	1	\N	2022-03-08 15:20:11.489928+00	\N	2	f
+758	sorensenlacey@hotmail.com	Bailey	\N	\N	2	2		1	10	2022-03-08 15:28:26.130872+00	\N	3	f
+761	aaabdelhaq@gmail.com	Maryam Hussein	\N	\N	3	\N		1	\N	2022-03-08 15:55:18.376716+00	\N	8	f
+762	aaabdelhaq@gmail.com	Hanna Hussein 	\N	\N	3	\N		1	\N	2022-03-08 15:56:03.373741+00	\N	7	f
+776	scottfamily1529@gmail.com	Maclaine	\N	\N	2	\N		1	\N	2022-03-08 19:56:51.965799+00	\N	1	f
+777	scottfamily1529@gmail.com	Brinkley	\N	\N	2	\N	Brinkley and Maclaine are twins. They turn two in June 	1	\N	2022-03-08 19:58:31.701429+00	\N	1	f
+778	prestonkriggs@gmail.com	Romie	\N	\N	3	\N		1	\N	2022-03-08 20:03:17.557082+00	\N	2	f
+779	prestonkriggs@gmail.com	Romie	\N	\N	2	\N		1	\N	2022-03-08 20:03:17.556856+00	\N	2	f
+782	sharonfrittsaz@gmail.com	Oliver	\N	\N	2	\N	No swim lessons, comfortable in water though	3	\N	2022-03-09 00:59:46.037492+00	\N	3	f
+760	nicolehochuli@hotmail.com	Carson Hochuli	\N	\N	1	1	Carson could be in the pool at 3:30 or after due to school	3	17	2022-03-08 15:50:06.673349+00	\N	7	t
+763	nicoleegoettel@gmail.com	Ava	\N	\N	1	1	Anytime between 1-2:30 would be ideal. Has preschool 9:30-12:30 and older siblings are home at 3:30.	3	12	2022-03-08 16:47:15.287293+00	\N	4	t
+788	shanny1717@gmail.com	Everly	\N	\N	2	\N		1	\N	2022-03-09 05:50:05.392745+00	\N	3	f
+789	shanny1717@gmail.com	Everly	\N	\N	3	\N		1	\N	2022-03-09 05:50:05.395257+00	\N	3	f
+790	shanny1717@gmail.com	Everly sellards	\N	\N	4	\N		1	\N	2022-03-09 05:55:32.857015+00	\N	4	f
+759	celestewardrop@gmail.com	Lulu	\N	\N	1	1		1	1	2022-03-08 15:30:51.169959+00	\N	5	t
+795	sammielmerrell@gmail.com	Emmie	\N	\N	2	\N	We will be out of town after June 16th. We will just come the first portion. 	1	\N	2022-03-09 22:26:44.472596+00	\N	4	f
+713	summersfletcher@gmail.com	Olivia	\N	\N	3	3	She has Beckham and Scarlett needing lessons too so if they can be at the same time that would be great	1	7	2022-03-08 04:19:18.789377+00	\N	4	f
+796	sammielmerrell@gmail.com	Emmie	\N	\N	4	\N		3	\N	2022-03-09 22:26:44.473049+00	\N	4	f
+797	sammielmerrell@gmail.com	Ollie	\N	\N	2	\N	We will be out of town after the 16th! 	1	\N	2022-03-09 22:27:26.619368+00	\N	6	f
+798	sammielmerrell@gmail.com	Ollie	\N	\N	4	\N		3	\N	2022-03-09 22:27:26.619696+00	\N	6	f
+785	courtneysaager@gmail.com	Reese Saager	\N	\N	3	3	The same time (if possible) as brother Hudson Saager 	1	11	2022-03-09 03:42:26.774841+00	\N	4	f
+803	office@velocityac.net	Tatum AuBuchon 	\N	\N	4	4		1	7	2022-03-10 20:22:09.467496+00	\N	2	f
+802	office@velocityac.net	Kylee AuBuchon 	\N	\N	4	4		1	7	2022-03-10 20:21:38.433276+00	\N	4	f
+799	office@velocityac.net	Trace AuBuchon 	\N	\N	4	4		1	7	2022-03-10 20:20:11.464397+00	\N	3	f
+767	arnischan7@gmail.com	Maggie Nischan	\N	\N	4	4		1	4	2022-03-08 18:06:24.228859+00	\N	3	f
+801	office@velocityac.net	Kylee AuBuchon 	\N	\N	3	3		1	8	2022-03-10 20:21:38.433016+00	\N	4	f
+800	office@velocityac.net	Trace AuBuchon 	\N	\N	3	3		1	8	2022-03-10 20:20:11.46394+00	\N	3	f
+804	office@velocityac.net	Tatum AuBuchon 	\N	\N	3	3		1	8	2022-03-10 20:22:09.467226+00	\N	2	f
+805	office@velocityac.net	Aubree AuBuchon 	\N	\N	3	3	We can adjust to afternoon if needed 	1	8	2022-03-10 20:23:17.787655+00	\N	4	f
+765	arnischan7@gmail.com	Maverick Nischan	\N	\N	3	3		1	12	2022-03-08 18:05:32.312486+00	\N	5	f
+766	arnischan7@gmail.com	Maggie Nischan	\N	\N	3	3		1	11	2022-03-08 18:06:24.22858+00	\N	3	f
+768	courtney.mcnabb@gmail.com	Conor McNabb	\N	\N	3	3	Will you please make it as late in the day as possible and with Harrison Prewitt?	3	14	2022-03-08 18:10:14.597122+00	\N	7	f
+781	alyssa.prewitt@gmail.com	Harrison Prewitt	\N	\N	3	3	With Conor McNabb. After 4PM preferably.	3	14	2022-03-08 21:23:48.517575+00	\N	7	f
+633	bock_sheryl@yahoo.com	Hudson Bock	\N	\N	2	2		1	5	2022-03-08 00:41:42.707919+00	\N	5	f
+784	courtneysaager@gmail.com	Hudson 	\N	\N	3	3	Close to the time of his sister Reese Saager 	1	12	2022-03-09 03:41:39.151759+00	\N	6	f
+786	lauren.heywood92@gmail.com	Peter Heywood 	\N	\N	3	3	Preferably later! 	3	11	2022-03-09 04:36:16.549362+00	\N	2	f
+787	lauren.heywood92@gmail.com	Tait Heywood 	\N	\N	3	3	Back to back with my two boys would be ideal! 	3	12	2022-03-09 04:37:16.09466+00	\N	4	f
+792	russell.katie2@gmail.com	Blair Hardison	\N	\N	3	3	Can she be put in the older class 	2	14	2022-03-09 14:41:33.234987+00	\N	5	f
+794	russell.katie2@gmail.com	Case Hardison	\N	\N	3	3	Younger class if possible the same time as Blair hardison just not the same class 	2	15	2022-03-09 14:43:19.913158+00	\N	4	f
+775	mrs.laurenhollis@gmail.com	Addi Hollis	\N	\N	3	3		1	13	2022-03-08 19:11:26.067526+00	\N	3	f
+634	bock_sheryl@yahoo.com	Hudson Bock	\N	\N	2	2		1	5	2022-03-08 00:41:42.942362+00	\N	5	f
+769	cherisedpalmer@gmail.com	Benson	\N	\N	2	2		1	1	2022-03-08 18:22:45.306367+00	\N	4	f
+770	cherisedpalmer@gmail.com	Calihan	\N	\N	2	2		1	2	2022-03-08 18:23:39.363544+00	\N	2	f
+772	kimberly.fontes@gmail.com	Conrad McDaniel 	\N	\N	2	2		2	11	2022-03-08 18:33:42.50345+00	\N	5	f
+771	kimberly.fontes@gmail.com	Mikaela McDaniel 	\N	\N	2	2	I can do later as well I am a night nurse and usually wake up at 2 pm when I have worked the night before so between 2-3 pm would be great for us. 	2	11	2022-03-08 18:33:14.026021+00	\N	6	f
+780	chelseafarnsworth07@gmail.com	Ollie	\N	\N	2	2		1	4	2022-03-08 20:56:56.384303+00	\N	4	f
+783	desi_lu3232@yahoo.com	Elliette Hunter	\N	\N	2	2		1	4	2022-03-09 02:36:38.259665+00	\N	5	f
+791	russell.katie2@gmail.com	Blair Hardison	\N	\N	2	2	Can she be put in the older class	2	8	2022-03-09 14:41:33.23425+00	\N	5	f
+793	russell.katie2@gmail.com	Case Hardison	\N	\N	2	2	Younger class. If possible the same time as sister Blair hardison just not the same class	2	9	2022-03-09 14:43:19.912742+00	\N	4	f
+711	summersfletcher@gmail.com	Olivia	\N	\N	1	1		2	12	2022-03-08 04:19:18.074044+00	\N	4	t
+714	summersfletcher@gmail.com	Olivia	\N	\N	1	1		2	12	2022-03-08 04:19:18.78914+00	\N	4	t
+754	flahertyaubrey@gmail.com	Miles	\N	\N	2	2		1	10	2022-03-08 14:50:26.754723+00	\N	3	f
+752	flahertyaubrey@gmail.com	Leo	\N	\N	2	2		1	10	2022-03-08 14:49:43.61123+00	\N	5	f
+753	flahertyaubrey@gmail.com	Leo	\N	\N	2	2		1	10	2022-03-08 14:49:43.812477+00	\N	5	f
+806	office@velocityac.net	Aubree AuBuchon 	\N	\N	4	4	We can adjust to afternoon if needed	1	7	2022-03-10 20:23:17.78837+00	\N	4	f
+836	kazandrajohnston@gmail.com	Kaia Iwen	\N	\N	4	4		3	10	2022-03-21 22:55:29.238419+00	\N	3	f
+831	jetbozeman@gmail.com	Harper	\N	\N	4	4	Harper has school and won’t be available till 3:30 or later	3	15	2022-03-17 02:55:41.949833+00	\N	4	f
+807	melissa@wilkinslearningcenter.com	Kole Wostl	\N	\N	3	3	I would love to have Kole and Maverick Infante together if possible.  Also, we run a business and need a time around 4:30 - 5:30 if possible	3	15	2022-03-10 23:03:28.026294+00	\N	5	f
+828	ashleyannelake@gmail.com	Gigi Larson	\N	\N	4	4		1	5	2022-03-16 19:30:28.98037+00	\N	2	f
+810	katiegulb@gmail.com	Bradley Gulbrandsen	\N	\N	3	3		1	14	2022-03-11 23:06:25.436564+00	\N	5	f
+839	lucymwillett1@gmail.com	Grayson Willett	\N	\N	4	\N	I would like to do Session 3 if there is a spot that opens up. 	1	\N	2022-03-22 20:34:26.665791+00	\N	2	f
+811	katiegulb@gmail.com	Jackson Gulbrandsen	\N	\N	3	3	Would be great if he could be in the same session as one or both of his brothers!	1	13	2022-03-11 23:07:14.298374+00	\N	3	f
+830	danika12n@gmail.com	Knox	\N	\N	4	4		3	11	2022-03-17 01:04:12.786704+00	\N	2	f
+812	katiegulb@gmail.com	Benjamin Gulbrandsen	\N	\N	3	3	Would be great if he could be in the same session as one or both of his brothers!	1	13	2022-03-11 23:07:54.69681+00	\N	1	f
+774	mrs.laurenhollis@gmail.com	Brigham Hollis	\N	\N	3	3	 Any way to have Addi & Brigham in back to back lessons? 	1	13	2022-03-08 19:10:50.235303+00	\N	2	f
+817	amberlmasters@gmail.com	Oliver	\N	\N	3	4	Hi there! Hoping to get Oliver and Emerald (twins) in the same session if there’s room for them together! Also if you happen to have any cancellations we’d love to be in sessions 1 or 2!	1	5	2022-03-14 15:27:01.436622+00	\N	2	f
+808	s.erin.farnsworth@gmail.com	Kate	\N	\N	3	3		1	9	2022-03-11 02:44:33.13064+00	\N	3	f
+818	amberlmasters@gmail.com	Oliver	\N	\N	3	4	Hi there! Hoping to get Oliver and Emerald (twins) in the same session if there’s room for them together! Also if you happen to have any cancellations we’d love to be in sessions 1 or 2!	1	5	2022-03-14 15:27:02.416497+00	\N	2	f
+809	britaball@mac.com	Journey Harper	\N	\N	3	3		1	10	2022-03-11 16:19:49.995471+00	\N	6	f
+773	kimberly.fontes@gmail.com	Silas McDaniel 	\N	\N	2	2	If my kids sessions would be together or back to back it would be ideal if possible. Later afternoons work better for us, we could also do the later times after 2:30. 	2	12	2022-03-08 18:34:53.082451+00	\N	1	f
+826	brookecruz12@gmail.com	Dax	\N	\N	4	4		1	3	2022-03-16 17:42:50.984573+00	\N	4	f
+819	amberlmasters@gmail.com	Emerald	\N	\N	3	4	Hi there!! Hoping to get Oliver and emerald in the same session (twins) and if you happen to have any cancellations in the earlier sessions we’d gladly take ‘em!!	1	5	2022-03-14 15:28:16.890438+00	\N	2	f
+821	norabrady@gmail.com	Vera Brady	\N	\N	4	4	After 12:30 if possible please - thank you!!	2	8	2022-03-14 17:58:23.617102+00	\N	3	f
+822	norabrady@gmail.com	Nash	\N	\N	4	4		3	14	2022-03-14 17:59:39.753076+00	\N	5	f
+824	sarae.005@gmail.com	Lucy	\N	\N	4	4		3	13	2022-03-15 23:07:26.757666+00	\N	5	f
+835	chels.farns@gmail.com	Bodi Farnsworth	\N	\N	4	4	If we could get in before 10am, that would be great! If the early sessions are not available, something between 2:30-4pm would work too. Bodi is so excited to swim with you again this summer :)	1	1	2022-03-19 03:13:45.897502+00	\N	2	f
+833	madimcbride2016@gmail.com	Noah McBride	\N	\N	4	4		3	12	2022-03-18 16:14:10.475123+00	\N	4	f
+832	jetbozeman@gmail.com	Jack	\N	\N	4	4	Hoping to have jack at the same time as Harper or right after! Thanks	3	15	2022-03-17 02:57:23.162582+00	\N	1	f
+827	brookecruz12@gmail.com	Kobe	\N	\N	4	4		1	2	2022-03-16 17:43:17.475104+00	\N	1	f
+673	candaceshiflet@gmail.com	Grae	\N	\N	1	6	If possible to do after 3:30pm on Monday, Tuesday, and or Fridays. We can switch sessions if this isn’t possible. 	3	16	2022-03-08 01:56:10.795114+00	\N	3	t
+823	jkschlink@gmail.com	Easton 	\N	\N	4	4		3	16	2022-03-15 23:04:44.724993+00	\N	6	f
+764	tiffanykimble@gmail.com	Kate Kimble	\N	\N	4	4	This is her first time taking any sort of swim lesson	1	4	2022-03-08 17:16:10.966799+00	\N	4	f
+820	jennyhogle526@gmail.com	Davy	\N	\N	4	4	If we can get him in sooner that would be great! I missed the email!	1	6	2022-03-14 15:50:12.645473+00	\N	2	f
+834	brown.tiakay@gmail.com	Lincoln Brown	\N	\N	4	4	Please add us to the class with Oliver & Emerald Masters if possible 	1	5	2022-03-18 18:54:48.589494+00	\N	2	f
+815	erinmathews19@gmail.com	Cameron	\N	\N	3	2	This is his first official swim lesson. 	1	13	2022-03-14 03:53:07.953304+00	\N	3	f
+533	kelseyvjackson@gmail.com	James Jackson	\N	\N	1	1	We can do any session from 12 on (just not 11:30), so we can pick up from preschool. If possible we would love to do james and william back to back or same time. 	2	8	2022-03-07 21:31:49.647563+00	\N	4	t
+840	lawnblower@hotmail.com	Madison 	\N	\N	4	4	A session starting after 3 pm if possible	3	13	2022-03-24 20:43:24.921813+00	\N	6	f
+829	csredivo@gmail.com	Riggs	\N	\N	4	4		1	4	2022-03-16 21:03:20.013503+00	\N	3	f
+813	sarahwells17@gmail.com	Lane	\N	\N	3	2		2	10	2022-03-13 03:55:03.105753+00	\N	3	f
+825	brookecruz12@gmail.com	Quinton	\N	\N	4	4		3	16	2022-03-16 17:42:13.51732+00	\N	6	f
+814	sarahwells17@gmail.com	Everett	\N	\N	3	2		2	10	2022-03-13 03:55:38.217014+00	\N	5	f
+837	kazandrajohnston@gmail.com	Kaia Iwen	\N	\N	4	4		3	10	2022-03-21 22:55:29.619173+00	\N	3	f
+816	erinmathews19@gmail.com	Nathan	\N	\N	3	2	I'd love it if both boys had the same time.	1	13	2022-03-14 03:54:22.226636+00	\N	5	f
+841	tkgould85@yahoo.com	Iyla 	\N	\N	4	4		2	6	2022-04-12 14:37:22.535253+00	\N	2	f
+838	delainritchey@gmail.com	Braylen Ritchey	\N	\N	4	4	Later in the day the better due to work schedule	3	10	2022-03-21 23:18:35.848004+00	\N	3	f
+842	celestewardrop@gmail.com	Lulu	\N	\N	4	\N		2	\N	2022-04-15 20:40:26.684037+00	\N	5	f
+843	travbates93@gmail.com	testemail	\N	\N	4	4		1	13	2022-04-15 21:15:51.169433+00	\N	5	t
+\.
+
+
+--
+-- Data for Name: schema_migrations; Type: TABLE DATA; Schema: realtime; Owner: supabase_admin
+--
+
+COPY realtime.schema_migrations (version, inserted_at) FROM stdin;
+20211116024918	2022-03-05 22:48:04
+20211116045059	2022-03-05 22:48:04
+20211116050929	2022-03-05 22:48:04
+20211116051442	2022-03-05 22:48:04
+20211116212300	2022-03-05 22:48:04
+20211116213355	2022-03-05 22:48:04
+20211116213934	2022-03-05 22:48:04
+20211116214523	2022-03-05 22:48:04
+20211122062447	2022-03-05 22:48:04
+20211124070109	2022-03-05 22:48:04
+20211202204204	2022-03-05 22:48:04
+20211202204605	2022-03-05 22:48:04
+20211210212804	2022-03-05 22:48:04
+20211228014915	2022-03-05 22:48:04
+20220107221237	2022-03-05 22:48:04
+20220228202821	2022-03-05 22:48:04
+20220312004840	2022-04-11 20:30:12
+\.
+
+
+--
+-- Data for Name: subscription; Type: TABLE DATA; Schema: realtime; Owner: supabase_admin
+--
+
+COPY realtime.subscription (id, subscription_id, entity, filters, claims, created_at) FROM stdin;
+\.
+
+
+--
+-- Data for Name: buckets; Type: TABLE DATA; Schema: storage; Owner: supabase_storage_admin
+--
+
+COPY storage.buckets (id, name, owner, created_at, updated_at, public) FROM stdin;
+\.
+
+
+--
+-- Data for Name: migrations; Type: TABLE DATA; Schema: storage; Owner: supabase_storage_admin
+--
+
+COPY storage.migrations (id, name, hash, executed_at) FROM stdin;
+0	create-migrations-table	e18db593bcde2aca2a408c4d1100f6abba2195df	2022-03-05 23:49:22.250797
+1	initialmigration	6ab16121fbaa08bbd11b712d05f358f9b555d777	2022-03-05 23:49:22.256884
+2	pathtoken-column	49756be03be4c17bb85fe70d4a861f27de7e49ad	2022-03-05 23:49:22.262165
+3	add-migrations-rls	bb5d124c53d68635a883e399426c6a5a25fc893d	2022-03-05 23:49:22.288236
+4	add-size-functions	6d79007d04f5acd288c9c250c42d2d5fd286c54d	2022-03-05 23:49:22.293921
+5	change-column-name-in-get-size	fd65688505d2ffa9fbdc58a944348dd8604d688c	2022-03-05 23:49:22.300015
+6	add-rls-to-buckets	63e2bab75a2040fee8e3fb3f15a0d26f3380e9b6	2022-03-05 23:49:22.311163
+7	add-public-to-buckets	82568934f8a4d9e0a85f126f6fb483ad8214c418	2022-03-05 23:49:22.317713
+8	fix-search-function	1a43a40eddb525f2e2f26efd709e6c06e58e059c	2022-03-05 23:49:22.323654
+\.
+
+
+--
+-- Data for Name: objects; Type: TABLE DATA; Schema: storage; Owner: supabase_storage_admin
+--
+
+COPY storage.objects (id, bucket_id, name, owner, created_at, updated_at, last_accessed_at, metadata) FROM stdin;
+\.
+
+
+--
+-- Name: refresh_tokens_id_seq; Type: SEQUENCE SET; Schema: auth; Owner: supabase_auth_admin
+--
+
+SELECT pg_catalog.setval('auth.refresh_tokens_id_seq', 1, false);
+
+
+--
+-- Name: knex_migrations_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.knex_migrations_id_seq', 1, true);
+
+
+--
+-- Name: knex_migrations_lock_index_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.knex_migrations_lock_index_seq', 1, true);
+
+
+--
+-- Name: parents_parentId_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public."parents_parentId_seq"', 410, true);
+
+
+--
+-- Name: sessions_sessionId_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public."sessions_sessionId_seq"', 1, false);
+
+
+--
+-- Name: students_studentId_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public."students_studentId_seq"', 843, true);
+
+
+--
+-- Name: subscription_id_seq; Type: SEQUENCE SET; Schema: realtime; Owner: supabase_admin
+--
+
+SELECT pg_catalog.setval('realtime.subscription_id_seq', 1, false);
+
+
+--
+-- Name: audit_log_entries audit_log_entries_pkey; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.audit_log_entries
+    ADD CONSTRAINT audit_log_entries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: identities identities_pkey; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.identities
+    ADD CONSTRAINT identities_pkey PRIMARY KEY (provider, id);
+
+
+--
+-- Name: instances instances_pkey; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.instances
+    ADD CONSTRAINT instances_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: refresh_tokens refresh_tokens_pkey; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.refresh_tokens
+    ADD CONSTRAINT refresh_tokens_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: refresh_tokens refresh_tokens_token_unique; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.refresh_tokens
+    ADD CONSTRAINT refresh_tokens_token_unique UNIQUE (token);
+
+
+--
+-- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.schema_migrations
+    ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (version);
+
+
+--
+-- Name: users users_email_key; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.users
+    ADD CONSTRAINT users_email_key UNIQUE (email);
+
+
+--
+-- Name: users users_phone_key; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.users
+    ADD CONSTRAINT users_phone_key UNIQUE (phone);
+
+
+--
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.users
+    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: knex_migrations_lock knex_migrations_lock_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.knex_migrations_lock
+    ADD CONSTRAINT knex_migrations_lock_pkey PRIMARY KEY (index);
+
+
+--
+-- Name: knex_migrations knex_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.knex_migrations
+    ADD CONSTRAINT knex_migrations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: parents parents_email_unique; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.parents
+    ADD CONSTRAINT parents_email_unique UNIQUE (email);
+
+
+--
+-- Name: parents parents_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.parents
+    ADD CONSTRAINT parents_pkey PRIMARY KEY ("parentId");
+
+
+--
+-- Name: sessions sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_pkey PRIMARY KEY ("sessionId");
+
+
+--
+-- Name: students students_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.students
+    ADD CONSTRAINT students_pkey PRIMARY KEY ("studentId");
+
+
+--
+-- Name: subscription pk_subscription; Type: CONSTRAINT; Schema: realtime; Owner: supabase_admin
+--
+
+ALTER TABLE ONLY realtime.subscription
+    ADD CONSTRAINT pk_subscription PRIMARY KEY (id);
+
+
+--
+-- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: realtime; Owner: supabase_admin
+--
+
+ALTER TABLE ONLY realtime.schema_migrations
+    ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (version);
+
+
+--
+-- Name: buckets buckets_pkey; Type: CONSTRAINT; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE ONLY storage.buckets
+    ADD CONSTRAINT buckets_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: migrations migrations_name_key; Type: CONSTRAINT; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE ONLY storage.migrations
+    ADD CONSTRAINT migrations_name_key UNIQUE (name);
+
+
+--
+-- Name: migrations migrations_pkey; Type: CONSTRAINT; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE ONLY storage.migrations
+    ADD CONSTRAINT migrations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: objects objects_pkey; Type: CONSTRAINT; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE ONLY storage.objects
+    ADD CONSTRAINT objects_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: audit_logs_instance_id_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX audit_logs_instance_id_idx ON auth.audit_log_entries USING btree (instance_id);
+
+
+--
+-- Name: identities_user_id_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX identities_user_id_idx ON auth.identities USING btree (user_id);
+
+
+--
+-- Name: refresh_tokens_instance_id_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX refresh_tokens_instance_id_idx ON auth.refresh_tokens USING btree (instance_id);
+
+
+--
+-- Name: refresh_tokens_instance_id_user_id_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX refresh_tokens_instance_id_user_id_idx ON auth.refresh_tokens USING btree (instance_id, user_id);
+
+
+--
+-- Name: refresh_tokens_parent_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX refresh_tokens_parent_idx ON auth.refresh_tokens USING btree (parent);
+
+
+--
+-- Name: refresh_tokens_token_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX refresh_tokens_token_idx ON auth.refresh_tokens USING btree (token);
+
+
+--
+-- Name: users_instance_id_email_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX users_instance_id_email_idx ON auth.users USING btree (instance_id, lower((email)::text));
+
+
+--
+-- Name: users_instance_id_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX users_instance_id_idx ON auth.users USING btree (instance_id);
+
+
+--
+-- Name: ix_realtime_subscription_entity; Type: INDEX; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE INDEX ix_realtime_subscription_entity ON realtime.subscription USING hash (entity);
+
+
+--
+-- Name: subscription_subscription_id_entity_filters_key; Type: INDEX; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE UNIQUE INDEX subscription_subscription_id_entity_filters_key ON realtime.subscription USING btree (subscription_id, entity, filters);
+
+
+--
+-- Name: bname; Type: INDEX; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE UNIQUE INDEX bname ON storage.buckets USING btree (name);
+
+
+--
+-- Name: bucketid_objname; Type: INDEX; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE UNIQUE INDEX bucketid_objname ON storage.objects USING btree (bucket_id, name);
+
+
+--
+-- Name: name_prefix_search; Type: INDEX; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE INDEX name_prefix_search ON storage.objects USING btree (name text_pattern_ops);
+
+
+--
+-- Name: subscription tr_check_filters; Type: TRIGGER; Schema: realtime; Owner: supabase_admin
+--
+
+CREATE TRIGGER tr_check_filters BEFORE INSERT OR UPDATE ON realtime.subscription FOR EACH ROW EXECUTE FUNCTION realtime.subscription_check_filters();
+
+
+--
+-- Name: identities identities_user_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.identities
+    ADD CONSTRAINT identities_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: refresh_tokens refresh_tokens_parent_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.refresh_tokens
+    ADD CONSTRAINT refresh_tokens_parent_fkey FOREIGN KEY (parent) REFERENCES auth.refresh_tokens(token);
+
+
+--
+-- Name: buckets buckets_owner_fkey; Type: FK CONSTRAINT; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE ONLY storage.buckets
+    ADD CONSTRAINT buckets_owner_fkey FOREIGN KEY (owner) REFERENCES auth.users(id);
+
+
+--
+-- Name: objects objects_bucketId_fkey; Type: FK CONSTRAINT; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE ONLY storage.objects
+    ADD CONSTRAINT "objects_bucketId_fkey" FOREIGN KEY (bucket_id) REFERENCES storage.buckets(id);
+
+
+--
+-- Name: objects objects_owner_fkey; Type: FK CONSTRAINT; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE ONLY storage.objects
+    ADD CONSTRAINT objects_owner_fkey FOREIGN KEY (owner) REFERENCES auth.users(id);
+
+
+--
+-- Name: buckets; Type: ROW SECURITY; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE storage.buckets ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: migrations; Type: ROW SECURITY; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE storage.migrations ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: objects; Type: ROW SECURITY; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: supabase_realtime; Type: PUBLICATION; Schema: -; Owner: postgres
+--
+
+CREATE PUBLICATION supabase_realtime WITH (publish = 'insert, update, delete, truncate');
+
+
+ALTER PUBLICATION supabase_realtime OWNER TO postgres;
+
+--
+-- Name: SCHEMA auth; Type: ACL; Schema: -; Owner: supabase_admin
+--
+
+GRANT USAGE ON SCHEMA auth TO anon;
+GRANT USAGE ON SCHEMA auth TO authenticated;
+GRANT USAGE ON SCHEMA auth TO service_role;
+GRANT ALL ON SCHEMA auth TO supabase_auth_admin;
+GRANT ALL ON SCHEMA auth TO dashboard_user;
+GRANT ALL ON SCHEMA auth TO postgres;
+
+
+--
+-- Name: SCHEMA extensions; Type: ACL; Schema: -; Owner: postgres
+--
+
+GRANT USAGE ON SCHEMA extensions TO anon;
+GRANT USAGE ON SCHEMA extensions TO authenticated;
+GRANT USAGE ON SCHEMA extensions TO service_role;
+GRANT ALL ON SCHEMA extensions TO dashboard_user;
+
+
+--
+-- Name: SCHEMA public; Type: ACL; Schema: -; Owner: postgres
+--
+
+GRANT USAGE ON SCHEMA public TO anon;
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT USAGE ON SCHEMA public TO service_role;
+
+
+--
+-- Name: SCHEMA realtime; Type: ACL; Schema: -; Owner: supabase_admin
+--
+
+GRANT USAGE ON SCHEMA realtime TO postgres;
+
+
+--
+-- Name: SCHEMA storage; Type: ACL; Schema: -; Owner: supabase_admin
+--
+
+GRANT ALL ON SCHEMA storage TO postgres;
+GRANT USAGE ON SCHEMA storage TO anon;
+GRANT USAGE ON SCHEMA storage TO authenticated;
+GRANT USAGE ON SCHEMA storage TO service_role;
+GRANT ALL ON SCHEMA storage TO supabase_storage_admin;
+GRANT ALL ON SCHEMA storage TO dashboard_user;
+
+
+--
+-- Name: FUNCTION email(); Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON FUNCTION auth.email() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION role(); Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON FUNCTION auth.role() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION uid(); Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON FUNCTION auth.uid() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION algorithm_sign(signables text, secret text, algorithm text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.algorithm_sign(signables text, secret text, algorithm text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION armor(bytea); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.armor(bytea) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION armor(bytea, text[], text[]); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.armor(bytea, text[], text[]) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION crypt(text, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.crypt(text, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION dearmor(text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.dearmor(text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION decrypt(bytea, bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.decrypt(bytea, bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION decrypt_iv(bytea, bytea, bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.decrypt_iv(bytea, bytea, bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION digest(bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.digest(bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION digest(text, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.digest(text, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION encrypt(bytea, bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.encrypt(bytea, bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION encrypt_iv(bytea, bytea, bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.encrypt_iv(bytea, bytea, bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION gen_random_bytes(integer); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.gen_random_bytes(integer) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION gen_random_uuid(); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.gen_random_uuid() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION gen_salt(text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.gen_salt(text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION gen_salt(text, integer); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.gen_salt(text, integer) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION grant_pg_cron_access(); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.grant_pg_cron_access() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION grant_pg_net_access(); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.grant_pg_net_access() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION hmac(bytea, bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.hmac(bytea, bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION hmac(text, text, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.hmac(text, text, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pg_stat_statements(showtext boolean, OUT userid oid, OUT dbid oid, OUT toplevel boolean, OUT queryid bigint, OUT query text, OUT plans bigint, OUT total_plan_time double precision, OUT min_plan_time double precision, OUT max_plan_time double precision, OUT mean_plan_time double precision, OUT stddev_plan_time double precision, OUT calls bigint, OUT total_exec_time double precision, OUT min_exec_time double precision, OUT max_exec_time double precision, OUT mean_exec_time double precision, OUT stddev_exec_time double precision, OUT rows bigint, OUT shared_blks_hit bigint, OUT shared_blks_read bigint, OUT shared_blks_dirtied bigint, OUT shared_blks_written bigint, OUT local_blks_hit bigint, OUT local_blks_read bigint, OUT local_blks_dirtied bigint, OUT local_blks_written bigint, OUT temp_blks_read bigint, OUT temp_blks_written bigint, OUT blk_read_time double precision, OUT blk_write_time double precision, OUT wal_records bigint, OUT wal_fpi bigint, OUT wal_bytes numeric); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pg_stat_statements(showtext boolean, OUT userid oid, OUT dbid oid, OUT toplevel boolean, OUT queryid bigint, OUT query text, OUT plans bigint, OUT total_plan_time double precision, OUT min_plan_time double precision, OUT max_plan_time double precision, OUT mean_plan_time double precision, OUT stddev_plan_time double precision, OUT calls bigint, OUT total_exec_time double precision, OUT min_exec_time double precision, OUT max_exec_time double precision, OUT mean_exec_time double precision, OUT stddev_exec_time double precision, OUT rows bigint, OUT shared_blks_hit bigint, OUT shared_blks_read bigint, OUT shared_blks_dirtied bigint, OUT shared_blks_written bigint, OUT local_blks_hit bigint, OUT local_blks_read bigint, OUT local_blks_dirtied bigint, OUT local_blks_written bigint, OUT temp_blks_read bigint, OUT temp_blks_written bigint, OUT blk_read_time double precision, OUT blk_write_time double precision, OUT wal_records bigint, OUT wal_fpi bigint, OUT wal_bytes numeric) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pg_stat_statements_info(OUT dealloc bigint, OUT stats_reset timestamp with time zone); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pg_stat_statements_info(OUT dealloc bigint, OUT stats_reset timestamp with time zone) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pg_stat_statements_reset(userid oid, dbid oid, queryid bigint); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pg_stat_statements_reset(userid oid, dbid oid, queryid bigint) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_armor_headers(text, OUT key text, OUT value text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_armor_headers(text, OUT key text, OUT value text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_key_id(bytea); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_key_id(bytea) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_pub_decrypt(bytea, bytea); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_pub_decrypt(bytea, bytea) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_pub_decrypt(bytea, bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_pub_decrypt(bytea, bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_pub_decrypt(bytea, bytea, text, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_pub_decrypt(bytea, bytea, text, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_pub_decrypt_bytea(bytea, bytea); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_pub_decrypt_bytea(bytea, bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_pub_decrypt_bytea(bytea, bytea, text, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea, text, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_pub_encrypt(text, bytea); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_pub_encrypt(text, bytea) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_pub_encrypt(text, bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_pub_encrypt(text, bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_pub_encrypt_bytea(bytea, bytea); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_pub_encrypt_bytea(bytea, bytea) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_pub_encrypt_bytea(bytea, bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_pub_encrypt_bytea(bytea, bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_sym_decrypt(bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_sym_decrypt(bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_sym_decrypt(bytea, text, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_sym_decrypt(bytea, text, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_sym_decrypt_bytea(bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_sym_decrypt_bytea(bytea, text, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_sym_encrypt(text, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_sym_encrypt(text, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_sym_encrypt(text, text, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_sym_encrypt(text, text, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_sym_encrypt_bytea(bytea, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_sym_encrypt_bytea(bytea, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION pgp_sym_encrypt_bytea(bytea, text, text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.pgp_sym_encrypt_bytea(bytea, text, text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION sign(payload json, secret text, algorithm text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.sign(payload json, secret text, algorithm text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION try_cast_double(inp text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.try_cast_double(inp text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION url_decode(data text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.url_decode(data text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION url_encode(data bytea); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.url_encode(data bytea) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION uuid_generate_v1(); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.uuid_generate_v1() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION uuid_generate_v1mc(); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.uuid_generate_v1mc() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION uuid_generate_v3(namespace uuid, name text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.uuid_generate_v3(namespace uuid, name text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION uuid_generate_v4(); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.uuid_generate_v4() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION uuid_generate_v5(namespace uuid, name text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.uuid_generate_v5(namespace uuid, name text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION uuid_nil(); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.uuid_nil() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION uuid_ns_dns(); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.uuid_ns_dns() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION uuid_ns_oid(); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.uuid_ns_oid() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION uuid_ns_url(); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.uuid_ns_url() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION uuid_ns_x500(); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.uuid_ns_x500() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION verify(token text, secret text, algorithm text); Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION extensions.verify(token text, secret text, algorithm text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION get_auth(p_usename text); Type: ACL; Schema: pgbouncer; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION pgbouncer.get_auth(p_usename text) FROM PUBLIC;
+GRANT ALL ON FUNCTION pgbouncer.get_auth(p_usename text) TO pgbouncer;
+
+
+--
+-- Name: FUNCTION apply_rls(wal jsonb, max_record_bytes integer); Type: ACL; Schema: realtime; Owner: supabase_admin
+--
+
+GRANT ALL ON FUNCTION realtime.apply_rls(wal jsonb, max_record_bytes integer) TO postgres;
+GRANT ALL ON FUNCTION realtime.apply_rls(wal jsonb, max_record_bytes integer) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION build_prepared_statement_sql(prepared_statement_name text, entity regclass, columns realtime.wal_column[]); Type: ACL; Schema: realtime; Owner: supabase_admin
+--
+
+GRANT ALL ON FUNCTION realtime.build_prepared_statement_sql(prepared_statement_name text, entity regclass, columns realtime.wal_column[]) TO postgres;
+GRANT ALL ON FUNCTION realtime.build_prepared_statement_sql(prepared_statement_name text, entity regclass, columns realtime.wal_column[]) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION "cast"(val text, type_ regtype); Type: ACL; Schema: realtime; Owner: supabase_admin
+--
+
+GRANT ALL ON FUNCTION realtime."cast"(val text, type_ regtype) TO postgres;
+GRANT ALL ON FUNCTION realtime."cast"(val text, type_ regtype) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION check_equality_op(op realtime.equality_op, type_ regtype, val_1 text, val_2 text); Type: ACL; Schema: realtime; Owner: supabase_admin
+--
+
+GRANT ALL ON FUNCTION realtime.check_equality_op(op realtime.equality_op, type_ regtype, val_1 text, val_2 text) TO postgres;
+GRANT ALL ON FUNCTION realtime.check_equality_op(op realtime.equality_op, type_ regtype, val_1 text, val_2 text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION is_visible_through_filters(columns realtime.wal_column[], filters realtime.user_defined_filter[]); Type: ACL; Schema: realtime; Owner: supabase_admin
+--
+
+GRANT ALL ON FUNCTION realtime.is_visible_through_filters(columns realtime.wal_column[], filters realtime.user_defined_filter[]) TO postgres;
+GRANT ALL ON FUNCTION realtime.is_visible_through_filters(columns realtime.wal_column[], filters realtime.user_defined_filter[]) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION quote_wal2json(entity regclass); Type: ACL; Schema: realtime; Owner: supabase_admin
+--
+
+GRANT ALL ON FUNCTION realtime.quote_wal2json(entity regclass) TO postgres;
+GRANT ALL ON FUNCTION realtime.quote_wal2json(entity regclass) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION subscription_check_filters(); Type: ACL; Schema: realtime; Owner: supabase_admin
+--
+
+GRANT ALL ON FUNCTION realtime.subscription_check_filters() TO postgres;
+GRANT ALL ON FUNCTION realtime.subscription_check_filters() TO dashboard_user;
+
+
+--
+-- Name: FUNCTION to_regrole(role_name text); Type: ACL; Schema: realtime; Owner: supabase_admin
+--
+
+GRANT ALL ON FUNCTION realtime.to_regrole(role_name text) TO postgres;
+GRANT ALL ON FUNCTION realtime.to_regrole(role_name text) TO dashboard_user;
+
+
+--
+-- Name: FUNCTION extension(name text); Type: ACL; Schema: storage; Owner: supabase_storage_admin
+--
+
+GRANT ALL ON FUNCTION storage.extension(name text) TO anon;
+GRANT ALL ON FUNCTION storage.extension(name text) TO authenticated;
+GRANT ALL ON FUNCTION storage.extension(name text) TO service_role;
+GRANT ALL ON FUNCTION storage.extension(name text) TO dashboard_user;
+GRANT ALL ON FUNCTION storage.extension(name text) TO postgres;
+
+
+--
+-- Name: FUNCTION filename(name text); Type: ACL; Schema: storage; Owner: supabase_storage_admin
+--
+
+GRANT ALL ON FUNCTION storage.filename(name text) TO anon;
+GRANT ALL ON FUNCTION storage.filename(name text) TO authenticated;
+GRANT ALL ON FUNCTION storage.filename(name text) TO service_role;
+GRANT ALL ON FUNCTION storage.filename(name text) TO dashboard_user;
+GRANT ALL ON FUNCTION storage.filename(name text) TO postgres;
+
+
+--
+-- Name: FUNCTION foldername(name text); Type: ACL; Schema: storage; Owner: supabase_storage_admin
+--
+
+GRANT ALL ON FUNCTION storage.foldername(name text) TO anon;
+GRANT ALL ON FUNCTION storage.foldername(name text) TO authenticated;
+GRANT ALL ON FUNCTION storage.foldername(name text) TO service_role;
+GRANT ALL ON FUNCTION storage.foldername(name text) TO dashboard_user;
+GRANT ALL ON FUNCTION storage.foldername(name text) TO postgres;
+
+
+--
+-- Name: TABLE audit_log_entries; Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON TABLE auth.audit_log_entries TO dashboard_user;
+GRANT ALL ON TABLE auth.audit_log_entries TO postgres;
+
+
+--
+-- Name: TABLE identities; Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON TABLE auth.identities TO postgres;
+GRANT ALL ON TABLE auth.identities TO dashboard_user;
+
+
+--
+-- Name: TABLE instances; Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON TABLE auth.instances TO dashboard_user;
+GRANT ALL ON TABLE auth.instances TO postgres;
+
+
+--
+-- Name: TABLE refresh_tokens; Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON TABLE auth.refresh_tokens TO dashboard_user;
+GRANT ALL ON TABLE auth.refresh_tokens TO postgres;
+
+
+--
+-- Name: SEQUENCE refresh_tokens_id_seq; Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON SEQUENCE auth.refresh_tokens_id_seq TO dashboard_user;
+GRANT ALL ON SEQUENCE auth.refresh_tokens_id_seq TO postgres;
+
+
+--
+-- Name: TABLE schema_migrations; Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON TABLE auth.schema_migrations TO dashboard_user;
+GRANT ALL ON TABLE auth.schema_migrations TO postgres;
+
+
+--
+-- Name: TABLE users; Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON TABLE auth.users TO dashboard_user;
+GRANT ALL ON TABLE auth.users TO postgres;
+
+
+--
+-- Name: TABLE pg_stat_statements; Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON TABLE extensions.pg_stat_statements TO dashboard_user;
+
+
+--
+-- Name: TABLE pg_stat_statements_info; Type: ACL; Schema: extensions; Owner: postgres
+--
+
+GRANT ALL ON TABLE extensions.pg_stat_statements_info TO dashboard_user;
+
+
+--
+-- Name: TABLE knex_migrations; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.knex_migrations TO anon;
+GRANT ALL ON TABLE public.knex_migrations TO authenticated;
+GRANT ALL ON TABLE public.knex_migrations TO service_role;
+
+
+--
+-- Name: SEQUENCE knex_migrations_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.knex_migrations_id_seq TO anon;
+GRANT ALL ON SEQUENCE public.knex_migrations_id_seq TO authenticated;
+GRANT ALL ON SEQUENCE public.knex_migrations_id_seq TO service_role;
+
+
+--
+-- Name: TABLE knex_migrations_lock; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.knex_migrations_lock TO anon;
+GRANT ALL ON TABLE public.knex_migrations_lock TO authenticated;
+GRANT ALL ON TABLE public.knex_migrations_lock TO service_role;
+
+
+--
+-- Name: SEQUENCE knex_migrations_lock_index_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.knex_migrations_lock_index_seq TO anon;
+GRANT ALL ON SEQUENCE public.knex_migrations_lock_index_seq TO authenticated;
+GRANT ALL ON SEQUENCE public.knex_migrations_lock_index_seq TO service_role;
+
+
+--
+-- Name: TABLE parents; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.parents TO anon;
+GRANT ALL ON TABLE public.parents TO authenticated;
+GRANT ALL ON TABLE public.parents TO service_role;
+
+
+--
+-- Name: SEQUENCE "parents_parentId_seq"; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public."parents_parentId_seq" TO anon;
+GRANT ALL ON SEQUENCE public."parents_parentId_seq" TO authenticated;
+GRANT ALL ON SEQUENCE public."parents_parentId_seq" TO service_role;
+
+
+--
+-- Name: TABLE sessions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.sessions TO anon;
+GRANT ALL ON TABLE public.sessions TO authenticated;
+GRANT ALL ON TABLE public.sessions TO service_role;
+
+
+--
+-- Name: SEQUENCE "sessions_sessionId_seq"; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public."sessions_sessionId_seq" TO anon;
+GRANT ALL ON SEQUENCE public."sessions_sessionId_seq" TO authenticated;
+GRANT ALL ON SEQUENCE public."sessions_sessionId_seq" TO service_role;
+
+
+--
+-- Name: TABLE students; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.students TO anon;
+GRANT ALL ON TABLE public.students TO authenticated;
+GRANT ALL ON TABLE public.students TO service_role;
+
+
+--
+-- Name: SEQUENCE "students_studentId_seq"; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public."students_studentId_seq" TO anon;
+GRANT ALL ON SEQUENCE public."students_studentId_seq" TO authenticated;
+GRANT ALL ON SEQUENCE public."students_studentId_seq" TO service_role;
+
+
+--
+-- Name: TABLE schema_migrations; Type: ACL; Schema: realtime; Owner: supabase_admin
+--
+
+GRANT ALL ON TABLE realtime.schema_migrations TO postgres;
+GRANT ALL ON TABLE realtime.schema_migrations TO dashboard_user;
+
+
+--
+-- Name: TABLE subscription; Type: ACL; Schema: realtime; Owner: supabase_admin
+--
+
+GRANT ALL ON TABLE realtime.subscription TO postgres;
+GRANT ALL ON TABLE realtime.subscription TO dashboard_user;
+
+
+--
+-- Name: SEQUENCE subscription_id_seq; Type: ACL; Schema: realtime; Owner: supabase_admin
+--
+
+GRANT ALL ON SEQUENCE realtime.subscription_id_seq TO postgres;
+GRANT ALL ON SEQUENCE realtime.subscription_id_seq TO dashboard_user;
+
+
+--
+-- Name: TABLE buckets; Type: ACL; Schema: storage; Owner: supabase_storage_admin
+--
+
+GRANT ALL ON TABLE storage.buckets TO anon;
+GRANT ALL ON TABLE storage.buckets TO authenticated;
+GRANT ALL ON TABLE storage.buckets TO service_role;
+GRANT ALL ON TABLE storage.buckets TO postgres;
+
+
+--
+-- Name: TABLE migrations; Type: ACL; Schema: storage; Owner: supabase_storage_admin
+--
+
+GRANT ALL ON TABLE storage.migrations TO anon;
+GRANT ALL ON TABLE storage.migrations TO authenticated;
+GRANT ALL ON TABLE storage.migrations TO service_role;
+GRANT ALL ON TABLE storage.migrations TO postgres;
+
+
+--
+-- Name: TABLE objects; Type: ACL; Schema: storage; Owner: supabase_storage_admin
+--
+
+GRANT ALL ON TABLE storage.objects TO anon;
+GRANT ALL ON TABLE storage.objects TO authenticated;
+GRANT ALL ON TABLE storage.objects TO service_role;
+GRANT ALL ON TABLE storage.objects TO postgres;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT ALL ON SEQUENCES  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT ALL ON SEQUENCES  TO dashboard_user;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT ALL ON FUNCTIONS  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT ALL ON FUNCTIONS  TO dashboard_user;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT ALL ON TABLES  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT ALL ON TABLES  TO dashboard_user;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: public; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES  TO anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES  TO authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES  TO service_role;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: public; Owner: supabase_admin
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON SEQUENCES  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON SEQUENCES  TO anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON SEQUENCES  TO authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON SEQUENCES  TO service_role;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: public; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS  TO anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS  TO authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS  TO service_role;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: public; Owner: supabase_admin
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON FUNCTIONS  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON FUNCTIONS  TO anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON FUNCTIONS  TO authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON FUNCTIONS  TO service_role;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: public; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES  TO anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES  TO authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES  TO service_role;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: public; Owner: supabase_admin
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES  TO anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES  TO authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES  TO service_role;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: realtime; Owner: supabase_admin
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON SEQUENCES  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON SEQUENCES  TO dashboard_user;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: realtime; Owner: supabase_admin
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON FUNCTIONS  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON FUNCTIONS  TO dashboard_user;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: realtime; Owner: supabase_admin
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON TABLES  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON TABLES  TO dashboard_user;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: storage; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON SEQUENCES  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON SEQUENCES  TO anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON SEQUENCES  TO authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON SEQUENCES  TO service_role;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: storage; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON FUNCTIONS  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON FUNCTIONS  TO anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON FUNCTIONS  TO authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON FUNCTIONS  TO service_role;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: storage; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES  TO anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES  TO authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES  TO service_role;
+
+
+--
+-- Name: issue_pg_cron_access; Type: EVENT TRIGGER; Schema: -; Owner: postgres
+--
+
+CREATE EVENT TRIGGER issue_pg_cron_access ON ddl_command_end
+         WHEN TAG IN ('CREATE SCHEMA')
+   EXECUTE FUNCTION extensions.grant_pg_cron_access();
+
+
+ALTER EVENT TRIGGER issue_pg_cron_access OWNER TO postgres;
+
+--
+-- Name: issue_pg_net_access; Type: EVENT TRIGGER; Schema: -; Owner: postgres
+--
+
+CREATE EVENT TRIGGER issue_pg_net_access ON ddl_command_end
+         WHEN TAG IN ('CREATE EXTENSION')
+   EXECUTE FUNCTION extensions.grant_pg_net_access();
+
+
+ALTER EVENT TRIGGER issue_pg_net_access OWNER TO postgres;
+
+--
+-- Name: pgrst_ddl_watch; Type: EVENT TRIGGER; Schema: -; Owner: supabase_admin
+--
+
+CREATE EVENT TRIGGER pgrst_ddl_watch ON ddl_command_end
+   EXECUTE FUNCTION extensions.pgrst_ddl_watch();
+
+
+ALTER EVENT TRIGGER pgrst_ddl_watch OWNER TO supabase_admin;
+
+--
+-- Name: pgrst_drop_watch; Type: EVENT TRIGGER; Schema: -; Owner: supabase_admin
+--
+
+CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
+   EXECUTE FUNCTION extensions.pgrst_drop_watch();
+
+
+ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
+
+--
+-- PostgreSQL database dump complete
+--
+
