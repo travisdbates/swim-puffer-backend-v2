@@ -13,10 +13,11 @@ module.exports = {
     age,
   }) => {
     let sessions = [
-      "April 26 - May 19",
-      "June 7 - June 30",
-      "July 12 - July 22",
-      "August 2 - August  18",
+      "April 11 - April 27",
+      "May 2 - May 18",
+      "May 30 - June 15",
+      "June 20 - July 4",
+      "August 7 - August  17",
     ];
     let times = [
       "9:00 AM - 11:30 AM",

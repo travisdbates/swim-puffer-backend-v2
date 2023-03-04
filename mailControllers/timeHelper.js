@@ -1,10 +1,10 @@
 module.exports = {
   sessions: {
-    1: "Session 1 - 4/26-5/19",
-    2: "Session 2 - 6/7-6/30",
-    3: "Session 3 - 7/12-7/22",
-    4: "Session 4 - 8/2-8/18",
-    5: "Session 5 - 8/17-8/27",
+    1: "Session 1 - 4/11-4/27",
+    2: "Session 2 - 5/2-5/18",
+    3: "Session 3 - 5/30-6/15",
+    4: "Session 4 - 6/20-7/4",
+    5: "Session 5 - 8/1-8/17",
   },
   times: {
     1: "9:00AM",
