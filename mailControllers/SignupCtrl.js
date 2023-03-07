@@ -17,7 +17,7 @@ module.exports = {
       "May 2 - May 18",
       "May 30 - June 15",
       "June 20 - July 4",
-      "August 7 - August  17",
+      "August 1 - August  17",
     ];
     let times = [
       "9:00 AM - 11:30 AM",
