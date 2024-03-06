@@ -70,7 +70,7 @@ module.exports = {
                       })}
         
         <br><br>
-                    We'll do our best to assign you a class within your preferred time preference, but there is no guarantee everybone will get in. You'll be notified 2-3 weeks before the session begins and assigned a time slot at that time!</span><br><br>
+                    We'll do our best to assign you a class within your preferred time preference, but there is no guarantee everyone will get in. You'll be notified 2-3 weeks before the session begins and assigned a time slot at that time!</span><br><br>
   </div>
   
   <div style="width: 500px; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: #55B3B0; color: white; margin-top: 15px; padding: 15px;">
